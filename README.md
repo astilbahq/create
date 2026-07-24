@@ -29,14 +29,18 @@ Focused profiles add the tooling their project shape needs:
 
 ```sh
 pnpm install
-pnpm scaffold ../my-project \
+pnpm scaffold my-project \
   --profile library \
   --description "A useful TypeScript library." \
   --github-owner ReesMorris \
   --package-name @reesmorris/my-project
 ```
 
-The destination must not already exist. Install dependencies before the generated repository's first commit so its `pnpm-lock.yaml` becomes part of that new history:
+From the foundation checkout, run `pnpm test:consumers` to generate, install, verify, and build every profile as a standalone project. Pass one or more profile names to narrow the matrix.
+
+The project is created beside the foundation checkout, and the destination must not already exist. The foundation and its generated projects keep `AGENTS.md` canonical with a `CLAUDE.md` symbolic link. On Windows, enable Developer Mode or use an elevated shell and configure Git to preserve symbolic links before cloning.
+
+Install dependencies before the generated repository's first commit so its `pnpm-lock.yaml` becomes part of that new history:
 
 ```sh
 cd ../my-project
@@ -47,8 +51,6 @@ git commit -m "chore: initialize project"
 ```
 
 The profiles are whole-project recipes rather than freely composable capabilities. Compound project shapes should start with the nearest recipe and make an intentional follow-up change.
-
-Run `pnpm test:consumers` to generate, install, verify, and build every profile as a standalone project. Pass one or more profile names to narrow the matrix.
 
 ## Deliberate omissions
 

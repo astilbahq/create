@@ -1,4 +1,4 @@
-import { lstat, mkdtemp, realpath, rm } from "node:fs/promises";
+import { lstat, mkdtemp, readlink, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -17,6 +17,23 @@ afterEach(async () => {
 });
 
 describe("parseScaffoldArguments", () => {
+  it("defaults destinations beside the foundation checkout", () => {
+    const request = parseScaffoldArguments([
+      "my-project",
+      "--profile",
+      "library",
+      "--description",
+      "An example project.",
+      "--github-owner",
+      "example",
+    ]);
+
+    expect(request).not.toBe("help");
+    expect(request).toMatchObject({
+      destination: path.resolve(import.meta.dirname, "../..", "my-project"),
+    });
+  });
+
   it("infers names from the destination", () => {
     expect(
       parseScaffoldArguments(
@@ -125,6 +142,40 @@ describe("parseScaffoldArguments", () => {
     }
   );
 
+  it.each([
+    "/absolute",
+    "../escape",
+    "nested/../escape",
+    "C:\\absolute",
+    "\\\\server\\share",
+    "C:../escape",
+    "D:project",
+    ".. /project",
+    "nested/.. /escape",
+    "CON",
+    "name.",
+    "name ",
+    "name?.txt",
+  ])("rejects unsafe destination argument %s", (destination) => {
+    expect(() =>
+      parseScaffoldArguments([
+        destination,
+        "--profile",
+        "react",
+        "--description",
+        "An example project.",
+        "--github-owner",
+        "example",
+        "--github-repo",
+        "project",
+        "--package-name",
+        "project",
+        "--project-name",
+        "project",
+      ])
+    ).toThrow(/normalized portable relative path without traversal/iu);
+  });
+
   it("returns help without requiring other options", () => {
     expect(parseScaffoldArguments(["--help"])).toBe("help");
   });
@@ -148,11 +199,13 @@ describe("parseScaffoldArguments", () => {
       profile: "library",
     });
 
-    await expect(lstat(path.join(destination, ".git"))).resolves.toMatchObject({
-      isDirectory: expect.any(Function),
-    });
+    const gitStats = await lstat(path.join(destination, ".git"));
+    expect(gitStats.isDirectory()).toBe(true);
     await expect(
       lstat(path.join(destination, ".git", "HEAD"))
     ).resolves.toBeDefined();
+    await expect(readlink(path.join(destination, "CLAUDE.md"))).resolves.toBe(
+      "AGENTS.md"
+    );
   });
 });

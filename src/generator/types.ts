@@ -8,6 +8,11 @@ export interface TextFileDeclaration {
   readonly path: string;
 }
 
+export interface SymlinkDeclaration {
+  readonly path: string;
+  readonly targetPath: string;
+}
+
 type JsonPrimitive = boolean | null | number | string;
 export type JsonValue =
   | JsonPrimitive
@@ -28,6 +33,7 @@ export interface Profile {
   readonly name: string;
   readonly packageJson?: PackageJsonFragment;
   readonly requires?: readonly string[];
+  readonly symlinks?: readonly SymlinkDeclaration[];
   readonly validateOptions?: (options: ProjectOptions) => undefined;
 }
 
@@ -38,7 +44,14 @@ export interface PlannedFile {
   readonly path: string;
 }
 
+export interface PlannedSymlink {
+  readonly origin: string;
+  readonly path: string;
+  readonly targetPath: string;
+}
+
 export interface GenerationPlan {
   readonly files: readonly PlannedFile[];
   readonly profiles: readonly string[];
+  readonly symlinks?: readonly PlannedSymlink[];
 }

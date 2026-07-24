@@ -3,6 +3,7 @@ import {
   mkdtemp,
   mkdir,
   readFile,
+  readlink,
   readdir,
   realpath,
   rm,
@@ -52,6 +53,13 @@ const plan: GenerationPlan = {
     },
   ],
   profiles: ["test"],
+  symlinks: [
+    {
+      origin: "test",
+      path: "GUIDE.md",
+      targetPath: "README.md",
+    },
+  ],
 };
 
 describe("applyGenerationPlan", () => {
@@ -67,6 +75,9 @@ describe("applyGenerationPlan", () => {
     await expect(
       readFile(path.join(destination, "src/index.ts"), "utf-8")
     ).resolves.toBe("export const value = 1;\n");
+    await expect(readlink(path.join(destination, "GUIDE.md"))).resolves.toBe(
+      "README.md"
+    );
     await expect(
       lstat(path.join(destination, ".typescript-foundation-incomplete"))
     ).rejects.toMatchObject({ code: "ENOENT" });

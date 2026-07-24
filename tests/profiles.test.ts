@@ -1,4 +1,12 @@
-import { mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises";
+import {
+  lstat,
+  mkdtemp,
+  readFile,
+  readlink,
+  readdir,
+  realpath,
+  rm,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -41,12 +49,23 @@ describe("project profiles", () => {
       const first = createGenerationPlan([profile], profileRegistry, options);
       const second = createGenerationPlan([profile], profileRegistry, options);
       const paths = first.files.map((file) => file.path);
+      const contents = new Map(
+        first.files.map((file) => [file.path, file.content])
+      );
 
       expect(first).toEqual(second);
       expect(first.profiles).toEqual(["base", profile]);
       expect(paths).toContain("package.json");
       expect(paths).toContain("README.md");
-      expect(paths).toContain("CLAUDE.md");
+      expect(paths).toContain("AGENTS.md");
+      expect(paths).not.toContain("CLAUDE.md");
+      expect(first.symlinks).toEqual([
+        {
+          origin: "base",
+          path: "CLAUDE.md",
+          targetPath: "AGENTS.md",
+        },
+      ]);
       expect(paths).toContain("SECURITY.md");
       expect(paths).toContain("renovate.json");
       expect(paths).toContain(".github/workflows/verification.yml");
@@ -57,6 +76,21 @@ describe("project profiles", () => {
       expect(
         first.files.every((file) => !file.content.includes("{{foundation:"))
       ).toBe(true);
+      expect(contents.get(".github/ISSUE_TEMPLATE/config.yml")).toContain(
+        "https://github.com/example/generated/security/advisories/new"
+      );
+      expect(contents.get("SECURITY.md")).toContain(
+        "https://github.com/example/generated/security/advisories/new"
+      );
+      expect(contents.get("docs/repository-settings.md")).toContain(
+        "Renovate for `example/generated`"
+      );
+      expect(contents.get("README.md")).toContain(
+        "`CLAUDE.md` is a symbolic link"
+      );
+      expect([...contents.values()].join("\n")).not.toContain(
+        "ReesMorris/typescript-foundation"
+      );
     }
   );
 
@@ -79,6 +113,16 @@ describe("project profiles", () => {
       expect(packageJson.name).toBe("@example/generated");
       expect(packageJson.scripts.verify).toContain("pnpm check");
       expect(await readdir(destination)).toContain("src");
+      const claudeStats = await lstat(path.join(destination, "CLAUDE.md"));
+      expect(claudeStats.isSymbolicLink()).toBe(true);
+      expect(await readlink(path.join(destination, "CLAUDE.md"))).toBe(
+        "AGENTS.md"
+      );
+      await expect(
+        readFile(path.join(destination, "CLAUDE.md"), "utf-8")
+      ).resolves.toBe(
+        await readFile(path.join(destination, "AGENTS.md"), "utf-8")
+      );
     }
   );
 

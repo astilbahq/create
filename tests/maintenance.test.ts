@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { lstat, readFile, readlink } from "node:fs/promises";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -74,6 +74,14 @@ const extractDependencies = (
     );
 
 describe("maintenance configuration", () => {
+  it("keeps AGENTS.md canonical for repository instructions", async () => {
+    const claudePath = path.join(root, "CLAUDE.md");
+    const claudeStats = await lstat(claudePath);
+
+    expect(claudeStats.isSymbolicLink()).toBe(true);
+    expect(await readlink(claudePath)).toBe("AGENTS.md");
+  });
+
   it("tracks every dependency pin embedded in generated profiles", async () => {
     const config = await readRenovateConfig();
     const file = "src/profiles/dependency-versions.ts";

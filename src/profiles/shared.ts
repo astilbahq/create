@@ -1,4 +1,7 @@
-import type { TextFileDeclaration } from "../generator/types.js";
+import type {
+  SymlinkDeclaration,
+  TextFileDeclaration,
+} from "../generator/types.js";
 
 export const file = (
   path: string,
@@ -8,6 +11,11 @@ export const file = (
   content: content.replace(/^\n/u, ""),
   mode,
   path,
+});
+
+export const link = (path: string, targetPath: string): SymlinkDeclaration => ({
+  path,
+  targetPath,
 });
 
 export const projectProfileNames = [

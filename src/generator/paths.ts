@@ -48,6 +48,24 @@ const isPortableSegment = (segment: string): boolean => {
   return true;
 };
 
+export const assertSafeDestinationArgument = (candidate: string): void => {
+  assertSafeDestinationPath(candidate);
+
+  const segments = candidate.split("/");
+
+  if (
+    path.isAbsolute(candidate) ||
+    path.win32.isAbsolute(candidate) ||
+    path.win32.parse(candidate).root.length > 0 ||
+    WINDOWS_SEPARATOR_PATTERN.test(candidate) ||
+    segments.some((segment) => !isPortableSegment(segment))
+  ) {
+    throw new Error(
+      "Destination must be a normalized portable relative path without traversal."
+    );
+  }
+};
+
 export const normalizeOutputPath = (candidate: string): string => {
   const portableCandidate = candidate.toLowerCase();
 

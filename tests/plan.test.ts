@@ -100,6 +100,62 @@ describe("createGenerationPlan", () => {
     ).toThrow(/Output collision/u);
   });
 
+  it("plans explicit symlinks to generated files", () => {
+    const symlinkRegistry = new Map<string, Profile>([
+      [
+        "base",
+        {
+          files: [{ content: "# Instructions\n", path: "AGENTS.md" }],
+          name: "base",
+          symlinks: [{ path: "CLAUDE.md", targetPath: "AGENTS.md" }],
+        },
+      ],
+    ]);
+
+    const plan = createGenerationPlan(["base"], symlinkRegistry, options);
+
+    expect(plan.symlinks).toEqual([
+      {
+        origin: "base",
+        path: "CLAUDE.md",
+        targetPath: "AGENTS.md",
+      },
+    ]);
+  });
+
+  it("rejects symlinks without a planned file target", () => {
+    const symlinkRegistry = new Map<string, Profile>([
+      [
+        "base",
+        {
+          name: "base",
+          symlinks: [{ path: "CLAUDE.md", targetPath: "AGENTS.md" }],
+        },
+      ],
+    ]);
+
+    expect(() =>
+      createGenerationPlan(["base"], symlinkRegistry, options)
+    ).toThrow(/must target a planned file/u);
+  });
+
+  it("rejects collisions between files and symlinks", () => {
+    const symlinkRegistry = new Map<string, Profile>([
+      [
+        "base",
+        {
+          files: [{ content: "# Instructions\n", path: "AGENTS.md" }],
+          name: "base",
+          symlinks: [{ path: "AGENTS.md", targetPath: "AGENTS.md" }],
+        },
+      ],
+    ]);
+
+    expect(() =>
+      createGenerationPlan(["base"], symlinkRegistry, options)
+    ).toThrow(/Output collision/u);
+  });
+
   it("rejects conflicting structured package values", () => {
     const conflictRegistry = new Map<string, Profile>([
       ...registry,

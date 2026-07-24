@@ -1,10 +1,39 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertSafeDestinationArgument,
   isWithinPath,
   normalizeOutputPath,
   resolveOutputPath,
 } from "../src/generator/paths.js";
+
+describe("assertSafeDestinationArgument", () => {
+  it.each(["project", "nested/project"])("accepts %j", (candidate) => {
+    expect(() => assertSafeDestinationArgument(candidate)).not.toThrow();
+  });
+
+  it.each([
+    "",
+    ".",
+    "..",
+    "../escape",
+    "nested/../escape",
+    "/absolute",
+    "C:\\absolute",
+    "\\\\server\\share",
+    "C:../escape",
+    "D:project",
+    ".. /project",
+    "nested/.. /escape",
+    "CON",
+    "name.",
+    "name ",
+    "name?.txt",
+    "double//separator",
+  ])("rejects %j", (candidate) => {
+    expect(() => assertSafeDestinationArgument(candidate)).toThrow();
+  });
+});
 
 describe("normalizeOutputPath", () => {
   it("accepts a normalized relative path", () => {

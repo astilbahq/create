@@ -4,7 +4,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 
 import { applyGenerationPlan } from "./generator/apply.js";
-import { assertSafeDestinationPath } from "./generator/paths.js";
+import { assertSafeDestinationArgument } from "./generator/paths.js";
 import { createGenerationPlan } from "./generator/plan.js";
 import { validateProjectOptions } from "./options.js";
 import type { ProjectOptions } from "./options.js";
@@ -18,6 +18,8 @@ Create a project from the TypeScript Foundation.
 
 Usage:
   pnpm scaffold <directory> --profile <profile> --description <text> --github-owner <owner>
+
+The directory is created beside the foundation checkout.
 
 Options:
   --description <text>    Short project description
@@ -53,7 +55,7 @@ const isProjectProfile = (value: string): value is ProjectProfileName =>
 
 export const parseScaffoldArguments = (
   arguments_: readonly string[],
-  cwd = process.cwd()
+  outputRoot = path.dirname(foundationRoot)
 ): ScaffoldRequest | "help" => {
   const { positionals, values } = parseArgs({
     allowPositionals: true,
@@ -79,9 +81,9 @@ export const parseScaffoldArguments = (
   }
 
   const destinationArgument = positionals[0] ?? "";
-  assertSafeDestinationPath(destinationArgument);
+  assertSafeDestinationArgument(destinationArgument);
 
-  const destination = path.resolve(cwd, destinationArgument);
+  const destination = path.resolve(outputRoot, destinationArgument);
   const inferredName = path.basename(destination);
   const profile = readRequiredOption(values, "profile");
 

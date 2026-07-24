@@ -1,7 +1,7 @@
 import type { Profile } from "../generator/types.js";
 import { dependencyVersions } from "./dependency-versions.js";
 import { githubFiles } from "./github-files.js";
-import { file } from "./shared.js";
+import { file, link } from "./shared.js";
 import { toolchainVersions } from "./toolchain-versions.js";
 
 const MIT_LICENSE = `
@@ -85,14 +85,6 @@ save-exact=true
     file(
       "AGENTS.md",
       `
-# Agent instructions
-
-Repository instructions live in [\`CLAUDE.md\`](./CLAUDE.md). Keep one authority rather than duplicating operational guidance.
-`
-    ),
-    file(
-      "CLAUDE.md",
-      `
 # {{foundation:projectName}}
 
 {{foundation:description}}
@@ -122,6 +114,8 @@ Repository instructions live in [\`CLAUDE.md\`](./CLAUDE.md). Keep one authority
 pnpm install
 pnpm verify
 \`\`\`
+
+Agent instructions are canonical in \`AGENTS.md\`; \`CLAUDE.md\` is a symbolic link. Checkouts require symbolic-link support. On Windows, enable Developer Mode or use an elevated shell and configure Git to preserve symbolic links before cloning.
 
 After the first push, complete the [repository-settings checklist](docs/repository-settings.md).
 `
@@ -191,4 +185,5 @@ minimumReleaseAge: 4320
       fix: "ultracite fix",
     },
   },
+  symlinks: [link("CLAUDE.md", "AGENTS.md")],
 };

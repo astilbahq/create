@@ -391,6 +391,8 @@ describe("maintenance configuration", () => {
 
     expect(lintedWorkflows).toEqual(emittedWorkflows);
     expect(auditWorkflow).toContain("inputs: .generated-audit");
-    expect(auditWorkflow).toContain('token: ""');
+    expect(auditWorkflow).toContain("online-audits: false");
+    expect(auditWorkflow).toContain("token: offline");
+    expect(auditWorkflow).not.toContain(`\${{ github.token }}`);
   });
 });

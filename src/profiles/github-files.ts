@@ -360,7 +360,7 @@ jobs:
           advanced-security: false
           min-severity: medium
           online-audits: false
-          token: ""
+          token: offline
           version: "1.26.1"
 `
   ),

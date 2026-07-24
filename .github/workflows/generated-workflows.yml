@@ -49,5 +49,5 @@ jobs:
           inputs: .generated-audit
           min-severity: medium
           online-audits: false
-          token: ""
+          token: offline
           version: "1.26.1"

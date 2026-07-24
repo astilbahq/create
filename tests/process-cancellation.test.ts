@@ -1,4 +1,11 @@
-import { access, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  copyFile,
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
@@ -8,6 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { runProcess } from "../src/install.js";
 
 const temporaryRoots: string[] = [];
+const fixtures = path.join(import.meta.dirname, "fixtures");
 
 afterEach(async () => {
   await Promise.all(
@@ -26,14 +34,13 @@ describe.runIf(process.platform === "win32")(
       );
       temporaryRoots.push(root);
       const marker = path.join(root, "descendant-completed");
-      await writeFile(
-        path.join(root, "child.js"),
-        `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(marker)}, "completed"), 1500);\n`,
-        "utf-8"
+      await copyFile(
+        path.join(fixtures, "process-cancellation-child.mjs"),
+        path.join(root, "child.mjs")
       );
       await writeFile(
         path.join(root, "cancel-test.cmd"),
-        "@echo off\r\nnode child.js\r\n",
+        "@echo off\r\nnode child.mjs descendant-completed\r\n",
         "utf-8"
       );
       const controller = new AbortController();
@@ -62,22 +69,20 @@ describe.runIf(process.platform !== "win32")(
       );
       temporaryRoots.push(root);
       const marker = path.join(root, "descendant-completed");
-      const childPath = path.join(root, "child.cjs");
-      await writeFile(
-        childPath,
-        `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(marker)}, "completed"), 1500);\n`,
-        "utf-8"
+      const childPath = path.join(root, "child.mjs");
+      await copyFile(
+        path.join(fixtures, "process-cancellation-child.mjs"),
+        childPath
       );
-      const parentPath = path.join(root, "parent.cjs");
-      await writeFile(
-        parentPath,
-        `require("node:child_process").spawn(process.execPath, [${JSON.stringify(childPath)}], { stdio: "ignore" });\nsetInterval(() => {}, 1000);\n`,
-        "utf-8"
+      const parentPath = path.join(root, "parent.mjs");
+      await copyFile(
+        path.join(fixtures, "process-cancellation-parent.mjs"),
+        parentPath
       );
       const controller = new AbortController();
       const running = runProcess(
         process.execPath,
-        [parentPath],
+        [parentPath, childPath, marker],
         root,
         controller.signal
       );

@@ -30,5 +30,8 @@ minimumReleaseAgeExclude:
 
 overrides:
   "brace-expansion@>=5.0.0 <5.0.8": 5.0.8
+  # Exact security override for GHSA-f88m-g3jw-g9cj. Remove once the pinned
+  # Wrangler resolves sharp >=0.35.0.
+  "sharp@<0.35.0": 0.35.3
 `;
 };

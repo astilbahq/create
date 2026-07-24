@@ -18,7 +18,7 @@ const temporaryRoots: string[] = [];
 
 const createTemporaryRoot = async (): Promise<string> => {
   const root = await mkdtemp(
-    path.join(await realpath(tmpdir()), "typescript-foundation-git-")
+    path.join(await realpath(tmpdir()), "create-astilba-git-")
   );
   temporaryRoots.push(root);
   return root;

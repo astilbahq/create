@@ -22,9 +22,7 @@ const temporaryRoots: string[] = [];
 
 const createTemporaryRoot = async (): Promise<string> => {
   const temporaryDirectory = await realpath(tmpdir());
-  const root = await mkdtemp(
-    path.join(temporaryDirectory, "typescript-foundation-")
-  );
+  const root = await mkdtemp(path.join(temporaryDirectory, "create-astilba-"));
   temporaryRoots.push(root);
   return root;
 };
@@ -43,12 +41,14 @@ const plan: GenerationPlan = {
       content: "# Example\n",
       mode: 0o644,
       origin: "test",
+      ownership: "seeded",
       path: "README.md",
     },
     {
       content: "export const value = 1;\n",
       mode: 0o644,
       origin: "test",
+      ownership: "seeded",
       path: "src/index.ts",
     },
   ],
@@ -79,7 +79,7 @@ describe("applyGenerationPlan", () => {
       "README.md"
     );
     await expect(
-      lstat(path.join(destination, ".typescript-foundation-incomplete"))
+      lstat(path.join(destination, ".astilba-create-incomplete"))
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
@@ -171,6 +171,7 @@ describe("applyGenerationPlan", () => {
           content: "collision",
           mode: 0o644,
           origin: "test",
+          ownership: "managed",
           path: "src",
         },
       ],
@@ -189,9 +190,9 @@ describe("applyGenerationPlan", () => {
   });
 
   it.each([
-    ".typescript-foundation-incomplete",
-    ".typescript-foundation-incomplete/file.txt",
-    ".TypeScript-Foundation-Incomplete",
+    ".astilba-create-incomplete",
+    ".astilba-create-incomplete/file.txt",
+    ".Astilba-Create-Incomplete",
   ])(
     "rejects internal publication path %s as generated output",
     async (outputPath) => {
@@ -203,6 +204,7 @@ describe("applyGenerationPlan", () => {
             content: "must not disappear\n",
             mode: 0o644,
             origin: "test",
+            ownership: "managed",
             path: outputPath,
           },
         ],

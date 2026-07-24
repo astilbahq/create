@@ -6,6 +6,6 @@ Security fixes apply to the current `main` branch. Generated projects are indepe
 
 ## Report a vulnerability
 
-Use [GitHub private vulnerability reporting](https://github.com/ReesMorris/typescript-foundation/security/advisories/new) for vulnerabilities in the generator, generated defaults, or repository automation. Include the affected revision, impact, and a minimal reproduction when possible.
+Use [GitHub private vulnerability reporting](https://github.com/astilbahq/create/security/advisories/new) for vulnerabilities in the generator, generated defaults, or repository automation. Include the affected revision, impact, and a minimal reproduction when possible.
 
 Do not disclose a suspected vulnerability in a public issue before it has been reviewed.

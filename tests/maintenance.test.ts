@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { CREATE_ASTILBA_VERSION } from "../src/manifest.js";
 import { dependencyVersions } from "../src/profiles/dependency-versions.js";
 import { githubFiles } from "../src/profiles/github-files.js";
 import { toolchainVersions } from "../src/profiles/toolchain-versions.js";
@@ -21,13 +22,18 @@ interface RenovateConfig {
 }
 
 interface RootPackageJson {
+  readonly bin: Readonly<Record<string, string>>;
   readonly dependencies?: Readonly<Record<string, string>>;
   readonly devDependencies?: Readonly<Record<string, string>>;
   readonly engines: {
     readonly node: string;
     readonly pnpm: string;
   };
+  readonly files: readonly string[];
+  readonly name: string;
   readonly packageManager: string;
+  readonly private?: boolean;
+  readonly version: string;
 }
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -361,6 +367,20 @@ describe("maintenance configuration", () => {
     expect(packageJson.packageManager).toBe(`pnpm@${toolchainVersions.pnpm}`);
   });
 
+  it("keeps the published CLI identity and manifest provenance aligned", async () => {
+    const packageJson = JSON.parse(
+      await readFile(path.join(root, "package.json"), "utf-8")
+    ) as RootPackageJson;
+
+    expect(packageJson).toMatchObject({
+      bin: { "create-astilba": "./dist/bin.js" },
+      files: ["dist"],
+      name: "create-astilba",
+      version: CREATE_ASTILBA_VERSION,
+    });
+    expect(packageJson.private).not.toBe(true);
+  });
+
   it("tests generated consumers at the Node.js floor and pinned version", async () => {
     const rootWorkflow = await readFile(
       path.join(root, ".github/workflows/verification.yml"),
@@ -377,7 +397,7 @@ describe("maintenance configuration", () => {
     expect(rootWorkflow.split(minimumLane)).toHaveLength(3);
     expect(rootWorkflow.split(currentLane)).toHaveLength(3);
     expect(rootWorkflow).toContain(
-      `name: Consumer (\${{ matrix.profile }}, Node \${{ matrix.node.label }})`
+      `name: Consumer (\${{ matrix.recipe }}, Node \${{ matrix.node.label }})`
     );
     expect(rootWorkflow).toContain(`node-version: \${{ matrix.node.version }}`);
     expect(generatedWorkflow).toContain(minimumLane);

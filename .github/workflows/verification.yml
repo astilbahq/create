@@ -47,7 +47,7 @@ jobs:
         run: pnpm verify
 
   consumers:
-    name: Consumer (${{ matrix.profile }}, Node ${{ matrix.node.label }})
+    name: Consumer (${{ matrix.recipe }}, Node ${{ matrix.node.label }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -58,7 +58,11 @@ jobs:
             version: "22.18.0"
           - label: current
             version: "24.18.0"
-        profile: [astro, library, react, workers]
+        recipe:
+          - astro-static-site
+          - cloudflare-worker-service
+          - react-vite-spa
+          - typescript-library
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,5 +83,81 @@ jobs:
 
       - name: Generate and verify consumer
         env:
-          CONSUMER_PROFILE: ${{ matrix.profile }}
-        run: pnpm test:consumers "$CONSUMER_PROFILE"
+          CONSUMER_RECIPE: ${{ matrix.recipe }}
+        run: pnpm test:consumers "$CONSUMER_RECIPE"
+
+  package:
+    name: Package artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          cache: pnpm
+          node-version: "24.18.0"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify packed package
+        run: pnpm test:package
+
+  windows-package:
+    name: Package smoke test (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          cache: pnpm
+          node-version: "24.18.0"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and pack
+        shell: pwsh
+        run: |
+          pnpm build
+          pnpm pack --pack-destination $env:RUNNER_TEMP
+
+      - name: Install packed CLI
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\harness"
+          Set-Content -Path "$env:RUNNER_TEMP\harness\package.json" -Value '{"name":"packed-cli-smoke","private":true}'
+          $tarball = Get-ChildItem "$env:RUNNER_TEMP\create-astilba-*.tgz" | Select-Object -First 1
+          if ($null -eq $tarball) {
+            throw "The packed create-astilba tarball was not found."
+          }
+          npm install --ignore-scripts --no-audit --no-fund --prefix "$env:RUNNER_TEMP\harness" $tarball.FullName
+
+      - name: Generate a project from the packed CLI
+        shell: pwsh
+        run: |
+          npm exec --prefix "$env:RUNNER_TEMP\harness" -- create-astilba windows-project --recipe react-vite-spa --description "Windows package smoke test." --github-owner example --no-git --install --json
+          Push-Location "$env:RUNNER_TEMP\windows-project"
+          try {
+            pnpm verify
+          } finally {
+            Pop-Location
+          }
+        working-directory: ${{ runner.temp }}

@@ -1,6 +1,6 @@
 import type { Profile } from "../generator/types.js";
 import { dependencyVersions } from "./dependency-versions.js";
-import { file, projectProfileConflicts } from "./shared.js";
+import { file, projectProfileConflicts, seededFile } from "./shared.js";
 
 export const libraryProfile: Profile = {
   conflicts: projectProfileConflicts("library"),
@@ -15,13 +15,13 @@ export const libraryProfile: Profile = {
 }
 `
     ),
-    file(
+    seededFile(
       "src/index.ts",
       `
 export const greet = (name: string): string => \`Hello, \${name}!\`;
 `
     ),
-    file(
+    seededFile(
       "tests/index.test.ts",
       `
 import { describe, expect, it } from "vitest";

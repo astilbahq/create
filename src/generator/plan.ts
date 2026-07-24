@@ -78,6 +78,63 @@ const resolveProfiles = (
   return ordered;
 };
 
+const validateProfileRegistry = (
+  registry: ReadonlyMap<string, Profile>
+): void => {
+  for (const [name, profile] of registry) {
+    if (profile.name !== name) {
+      throw new Error(
+        `Profile registry key "${name}" does not match profile name "${profile.name}".`
+      );
+    }
+
+    for (const requiredName of profile.requires ?? []) {
+      if (requiredName === name) {
+        throw new Error(`Profile "${name}" must not require itself.`);
+      }
+
+      if (!registry.has(requiredName)) {
+        throw new Error(
+          `Profile "${name}" requires unknown profile "${requiredName}".`
+        );
+      }
+    }
+
+    for (const conflictName of profile.conflicts ?? []) {
+      if (conflictName === name) {
+        throw new Error(`Profile "${name}" must not conflict with itself.`);
+      }
+
+      if (!registry.has(conflictName)) {
+        throw new Error(
+          `Profile "${name}" conflicts with unknown profile "${conflictName}".`
+        );
+      }
+    }
+  }
+
+  for (const name of registry.keys()) {
+    resolveProfiles([name], registry);
+  }
+};
+
+export const createProfileRegistry = (
+  profiles: readonly Profile[]
+): ReadonlyMap<string, Profile> => {
+  const registry = new Map<string, Profile>();
+
+  for (const profile of profiles) {
+    if (registry.has(profile.name)) {
+      throw new Error(`Duplicate profile name: "${profile.name}".`);
+    }
+
+    registry.set(profile.name, profile);
+  }
+
+  validateProfileRegistry(registry);
+  return registry;
+};
+
 const validatePortablePathSet = (
   plannedByPath: ReadonlyMap<string, { readonly path: string }>
 ): void => {
@@ -159,6 +216,7 @@ export const createGenerationPlan = (
     throw new Error("At least one profile must be selected.");
   }
 
+  validateProfileRegistry(registry);
   const options = validateProjectOptions(rawOptions);
   const profiles = resolveProfiles(selectedNames, registry);
   const plannedByPath = new Map<string, PlannedFile>();
@@ -187,6 +245,7 @@ export const createGenerationPlan = (
         content: substitutePlaceholders(declaration.content, options),
         mode: declaration.mode ?? 0o644,
         origin: profile.name,
+        ownership: declaration.ownership ?? "managed",
         path,
       });
     }
@@ -205,6 +264,7 @@ export const createGenerationPlan = (
       content: packageJson,
       mode: 0o644,
       origin: "package-json-reducer",
+      ownership: "structured",
       path: "package.json",
     });
   }

@@ -6,12 +6,20 @@ import type {
 export const file = (
   path: string,
   content: string,
-  mode: 0o644 | 0o755 = 0o644
+  mode: 0o644 | 0o755 = 0o644,
+  ownership: "managed" | "seeded" = "managed"
 ): TextFileDeclaration => ({
   content: content.replace(/^\n/u, ""),
   mode,
+  ownership,
   path,
 });
+
+export const seededFile = (
+  path: string,
+  content: string,
+  mode: 0o644 | 0o755 = 0o644
+): TextFileDeclaration => file(path, content, mode, "seeded");
 
 export const link = (path: string, targetPath: string): SymlinkDeclaration => ({
   path,

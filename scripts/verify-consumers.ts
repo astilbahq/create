@@ -1,27 +1,23 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 import { scaffoldProject } from "../src/cli.js";
-import { projectProfileNames } from "../src/profiles/index.js";
-import type { ProjectProfileName } from "../src/profiles/index.js";
+import { isProjectRecipeId, projectRecipeIds } from "../src/recipes.js";
+import type { ProjectRecipeId } from "../src/recipes.js";
 
 const executeFile = promisify(execFile);
-const foundationRoot = path.resolve(import.meta.dirname, "..");
 
-const isProjectProfile = (value: string): value is ProjectProfileName =>
-  projectProfileNames.some((profile) => profile === value);
-
-const readProfiles = (arguments_: readonly string[]): ProjectProfileName[] => {
+const readRecipes = (arguments_: readonly string[]): ProjectRecipeId[] => {
   if (arguments_.length === 0) {
-    return [...projectProfileNames];
+    return [...projectRecipeIds];
   }
 
   return arguments_.map((argument) => {
-    if (!isProjectProfile(argument)) {
-      throw new Error(`Unknown consumer profile: ${argument}.`);
+    if (!isProjectRecipeId(argument)) {
+      throw new Error(`Unknown consumer recipe: ${argument}.`);
     }
 
     return argument;
@@ -53,50 +49,41 @@ const runCommand = async (
   }
 };
 
-const verifyBuiltBin = async (temporaryRoot: string): Promise<void> => {
-  await runCommand("pnpm", ["build"], foundationRoot);
-  const binLink = path.join(temporaryRoot, "typescript-foundation");
-  await symlink(path.join(foundationRoot, "dist", "bin.js"), binLink);
-  const { stdout } = await executeFile(process.execPath, [binLink, "--help"]);
-
-  if (!stdout.includes("Create a project from the TypeScript Foundation.")) {
-    throw new Error("The installed-style CLI entrypoint did not run.");
-  }
-};
-
-const verifyProfile = async (
-  profile: ProjectProfileName,
+const verifyRecipe = async (
+  recipe: ProjectRecipeId,
   temporaryRoot: string
 ): Promise<void> => {
-  const destination = path.join(temporaryRoot, profile);
+  const destination = path.join(temporaryRoot, recipe);
   await scaffoldProject({
     destination,
+    dryRun: false,
+    initializeGit: true,
+    installDependencies: false,
+    json: false,
     options: {
-      description: `A generated ${profile} project with {braces}, "quotes", and </script>.`,
+      description: `A generated ${recipe} project with {braces}, "quotes", and </script>.`,
       githubOwner: "example",
-      githubRepo: profile,
-      packageName: `@example/${profile}`,
-      projectName: profile,
+      githubRepo: recipe,
+      packageName: `@example/${recipe}`,
+      projectName: recipe,
     },
-    profile,
+    recipe,
   });
   await runCommand("pnpm", ["install"], destination);
   await runCommand("pnpm", ["verify"], destination);
 };
 
 const main = async (): Promise<void> => {
-  const profiles = readProfiles(process.argv.slice(2));
+  const recipes = readRecipes(process.argv.slice(2));
   const temporaryRoot = await mkdtemp(
-    path.join(await realpath(tmpdir()), "typescript-foundation-consumers-")
+    path.join(await realpath(tmpdir()), "create-astilba-consumers-")
   );
 
   try {
-    await verifyBuiltBin(temporaryRoot);
-
     const results = await Promise.allSettled(
-      profiles.map(async (profile) => {
-        process.stdout.write(`\nVerifying generated ${profile} consumer...\n`);
-        await verifyProfile(profile, temporaryRoot);
+      recipes.map(async (recipe) => {
+        process.stdout.write(`\nVerifying generated ${recipe} consumer...\n`);
+        await verifyRecipe(recipe, temporaryRoot);
       })
     );
     const failures = results.flatMap((result) =>

@@ -6,7 +6,7 @@ const WINDOWS_DEVICE_NAME_PATTERN =
   /^(?:aux|con|nul|prn|com[1-9]|lpt[1-9])(?:\.|$)/iu;
 const WINDOWS_FORBIDDEN_CHARACTERS = '<>:"|?*';
 
-export const INCOMPLETE_MARKER_PATH = ".typescript-foundation-incomplete";
+export const INCOMPLETE_MARKER_PATH = ".astilba-create-incomplete";
 
 export const assertSafeDestinationPath = (candidate: string): void => {
   if (

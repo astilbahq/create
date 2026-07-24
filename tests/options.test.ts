@@ -5,7 +5,7 @@ import type { ProjectOptions } from "../src/options.js";
 
 const validOptions: ProjectOptions = {
   description: "A useful TypeScript project.",
-  githubOwner: "ReesMorris",
+  githubOwner: "example",
   githubRepo: "useful-project",
   packageName: "@example/useful-project",
   projectName: "useful-project",

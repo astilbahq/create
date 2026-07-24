@@ -1,59 +1,86 @@
-# TypeScript Foundation
+# Astilba Create
 
-An opinionated, security-conscious foundation for new TypeScript projects.
+Create production-ready TypeScript projects with Astilba's maintained engineering foundations.
 
-This is an ordinary public repository, not a GitHub template. Its deterministic scaffolder creates independent repositories with fresh Git histories, so generated projects have no template provenance or shared commit ancestry.
-
-## What it includes
-
-Every profile receives:
-
-- exact Node.js, pnpm, dependency, and GitHub Action pins;
-- strict TypeScript, Ultracite with Oxfmt and Oxlint, Vitest, and Knip;
-- a frozen-lockfile CI matrix across supported Node.js majors;
-- Actionlint, Zizmor, OSV-Scanner, PR-title validation, and public-repository CodeQL and dependency review;
-- Renovate with a three-day release-age gate and conservative automerge rules;
-- issue forms, a pull-request template, security and contribution guidance, and concise agent instructions; and
-- portable text settings, an MIT license, and a minimal project README.
-
-Focused profiles add the tooling their project shape needs:
-
-| Profile | Adds |
-| --- | --- |
-| `library` | ESM package output, declarations and source maps, Publint, and Are the Types Wrong |
-| `astro` | Astro, Astro Check, a static page, and a production build |
-| `react` | React, Vite, strict JSX types, and a production build |
-| `workers` | Wrangler, generated binding types, `workerd`-backed Vitest, and a dry-run deployment build |
+Astilba Create is an ordinary public repository, not a GitHub template. Its deterministic CLI generates independent repositories with fresh Git histories and no shared commit ancestry.
 
 ## Create a project
 
 ```sh
-pnpm install
-pnpm scaffold my-project \
-  --profile library \
-  --description "A useful TypeScript library." \
-  --github-owner ReesMorris \
-  --package-name @reesmorris/my-project
+npm create astilba@latest
 ```
 
-From the foundation checkout, run `pnpm test:consumers` to generate, install, verify, and build every profile as a standalone project. Pass one or more profile names to narrow the matrix.
+The interactive CLI asks where to create the project, which supported recipe to use, and the small amount of project metadata that cannot be inferred safely.
 
-The project is created beside the foundation checkout, and the destination must not already exist. The foundation and its generated projects keep `AGENTS.md` canonical with a `CLAUDE.md` symbolic link. On Windows, enable Developer Mode or use an elevated shell and configure Git to preserve symbolic links before cloning.
-
-Install dependencies before the generated repository's first commit so its `pnpm-lock.yaml` becomes part of that new history:
+For agents and automated environments, provide every input explicitly:
 
 ```sh
-cd ../my-project
-pnpm install
-pnpm verify
-git add --all
-git commit -m "chore: initialize project"
+npm create astilba@latest -- my-project \
+  --recipe react-vite-spa \
+  --description "A useful application." \
+  --github-owner example \
+  --package-name @example/my-project \
+  --no-install
 ```
 
-The profiles are whole-project recipes rather than freely composable capabilities. Compound project shapes should start with the nearest recipe and make an intentional follow-up change.
+Use `--dry-run` to validate and inspect a plan without writing files. Use `--json` for versioned machine-readable output; that mode never prompts.
 
-## Deliberate omissions
+## Maintained recipes
 
-The foundation does not choose deployment credentials, hosting, release automation, package versioning, coverage thresholds, browser tests, product architecture, or organization-specific branch rules. Those decisions depend on the project and should become explicit follow-up commits rather than hidden defaults.
+| Recipe | Starting point |
+| --- | --- |
+| `typescript-library` | ESM TypeScript package with declarations and packaging checks |
+| `react-vite-spa` | Client-rendered React application built with Vite |
+| `astro-static-site` | Statically rendered Astro site |
+| `cloudflare-worker-service` | TypeScript service running on Cloudflare Workers |
 
-After the first push, complete the short [repository-settings checklist](docs/repository-settings.md).
+The questionnaire can explain project kind, framework, build tool, and runtime, but it always resolves to one named recipe that Astilba verifies as a complete project. Arbitrary combinations are not advertised as supported.
+
+## Generated foundations
+
+Every recipe receives:
+
+- exact Node.js, pnpm, dependency, and GitHub Action pins;
+- strict TypeScript, Ultracite with Oxfmt and Oxlint, Vitest, and Knip;
+- a frozen-lockfile CI matrix across supported Node.js majors;
+- Actionlint, Zizmor, OSV-Scanner, PR-title validation, CodeQL, and dependency review;
+- Renovate with a three-day release-age gate and conservative automerge rules;
+- issue forms, security and contribution guidance, and concise agent instructions; and
+- a deterministic `.astilba/project.json` manifest.
+
+The manifest records the generator and recipe versions together with exact ownership information:
+
+- **managed** configuration has a SHA-256 content digest;
+- **metadata** identifies the manifest itself without a recursive self-hash;
+- **seeded** application code becomes user-owned immediately;
+- **structured** files identify individually owned fields; and
+- generated symbolic links record their targets.
+
+This provides a safe basis for future authored migrations without granting the generator permission to overwrite application code.
+
+## Development
+
+```sh
+pnpm install
+pnpm verify
+pnpm test:consumers
+pnpm test:package
+```
+
+From this checkout, run the development CLI with:
+
+```sh
+pnpm create
+```
+
+`pnpm test:consumers` generates, installs, verifies, and builds every recipe as an independent project. `pnpm test:package` repeats that test through the actual npm tarball.
+
+## Portability
+
+Generated projects keep `AGENTS.md` canonical with a `CLAUDE.md` symbolic link. On Windows, symbolic-link creation requires Developer Mode or an elevated shell. Astilba Create fails atomically when the platform cannot create the link, so it never leaves a partial project.
+
+## Deliberate boundaries
+
+Astilba Create initially offers a small catalogue of golden recipes. Panda CSS, Sentry, browser testing, deployment automation, authentication, databases, and other capabilities will be added only after their complete development, CI, deployment, and verification contracts have been proven in real Astilba projects.
+
+Future `doctor` and update tooling will apply explicit, fail-closed migrations. It will not regenerate over existing repositories or mutate default branches silently.

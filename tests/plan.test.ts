@@ -2,7 +2,10 @@ import { setImmediate as waitForImmediate } from "node:timers/promises";
 
 import { describe, expect, it } from "vitest";
 
-import { createGenerationPlan } from "../src/generator/plan.js";
+import {
+  createGenerationPlan,
+  createProfileRegistry,
+} from "../src/generator/plan.js";
 import type { Profile } from "../src/generator/types.js";
 import type { ProjectOptions } from "../src/options.js";
 
@@ -53,6 +56,12 @@ const registry = new Map<string, Profile>([
 ]);
 
 describe("createGenerationPlan", () => {
+  it("rejects duplicate profile names before building the registry", () => {
+    expect(() =>
+      createProfileRegistry([{ name: "duplicate" }, { name: "duplicate" }])
+    ).toThrow(/Duplicate profile name/u);
+  });
+
   it("resolves requirements and produces sorted deterministic output", () => {
     const first = createGenerationPlan(["react"], registry, options);
     const second = createGenerationPlan(["react"], registry, options);

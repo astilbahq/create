@@ -1,25 +1,55 @@
 {
-  "name": "typescript-foundation",
-  "version": "0.0.0",
-  "private": true,
-  "description": "A deterministic, security-conscious foundation for TypeScript projects.",
-  "license": "MIT",
-  "bin": {
-    "typescript-foundation": "./dist/bin.js"
+  "name": "create-astilba",
+  "version": "0.1.0",
+  "description": "Create production-ready TypeScript projects with Astilba's maintained foundations.",
+  "keywords": [
+    "astilba",
+    "astro",
+    "cloudflare-workers",
+    "scaffolding",
+    "typescript",
+    "vite"
+  ],
+  "homepage": "https://github.com/astilbahq/create#readme",
+  "bugs": {
+    "url": "https://github.com/astilbahq/create/issues"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/astilbahq/create.git"
+  },
+  "bin": {
+    "create-astilba": "./dist/bin.js"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsx scripts/clean.ts && tsc -p tsconfig.build.json",
     "check": "ultracite check",
+    "create": "tsx src/bin.ts",
     "fix": "ultracite fix",
     "generate:workflow-audit-fixture": "tsx scripts/generate-workflow-audit-fixture.ts",
     "knip": "knip",
-    "scaffold": "tsx src/bin.ts",
     "test": "vitest run",
     "test:consumers": "tsx scripts/verify-consumers.ts",
+    "test:package": "pnpm build && tsx scripts/verify-packed-package.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "verify": "pnpm check && pnpm typecheck && pnpm test && pnpm knip && pnpm build"
+  },
+  "dependencies": {
+    "@clack/prompts": "1.7.0"
   },
   "devDependencies": {
     "@types/node": "24.13.3",

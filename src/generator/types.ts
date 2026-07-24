@@ -1,10 +1,12 @@
 import type { ProjectOptions } from "../options.js";
 
 type FileMode = 0o644 | 0o755;
+type FileOwnership = "managed" | "metadata" | "seeded" | "structured";
 
 export interface TextFileDeclaration {
   readonly content: string;
   readonly mode?: FileMode;
+  readonly ownership?: Exclude<FileOwnership, "metadata" | "structured">;
   readonly path: string;
 }
 
@@ -41,6 +43,7 @@ export interface PlannedFile {
   readonly content: string;
   readonly mode: FileMode;
   readonly origin: string;
+  readonly ownership: FileOwnership;
   readonly path: string;
 }
 

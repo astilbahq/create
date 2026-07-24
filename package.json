@@ -1,0 +1,32 @@
+{
+  "name": "typescript-foundation",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A deterministic, security-conscious foundation for TypeScript projects.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "ultracite check",
+    "fix": "ultracite fix",
+    "knip": "knip",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "verify": "pnpm check && pnpm typecheck && pnpm test && pnpm knip && pnpm build"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "knip": "6.26.0",
+    "oxfmt": "0.59.0",
+    "oxlint": "1.74.0",
+    "typescript": "6.0.3",
+    "ultracite": "7.9.4",
+    "vitest": "4.1.10"
+  },
+  "engines": {
+    "node": ">=22.18.0",
+    "pnpm": ">=11.10.0"
+  },
+  "packageManager": "pnpm@11.10.0"
+}

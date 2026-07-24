@@ -8,11 +8,14 @@ import {
   rename,
   rm,
   rmdir,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
 
+import { initializeGitRepository } from "./git.js";
 import {
+  assertSafeDestinationPath,
   INCOMPLETE_MARKER_PATH,
   isWithinPath,
   resolveOutputPath,
@@ -21,6 +24,7 @@ import type { GenerationPlan } from "./types.js";
 
 export interface ApplyPlanOptions {
   readonly forbiddenRoots?: readonly string[];
+  readonly initializeGit?: boolean;
 }
 
 const pathExists = async (candidate: string): Promise<boolean> => {
@@ -30,6 +34,28 @@ const pathExists = async (candidate: string): Promise<boolean> => {
   } catch (error: unknown) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return false;
+    }
+
+    throw error;
+  }
+};
+
+const createPlannedSymlink = async (
+  output: string,
+  target: string
+): Promise<void> => {
+  try {
+    await symlink(path.relative(path.dirname(output), target), output, "file");
+  } catch (error: unknown) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      (error.code === "EACCES" || error.code === "EPERM")
+    ) {
+      throw new Error(
+        "Could not create the planned symbolic link. Enable symbolic-link support for this filesystem; Windows requires Developer Mode or elevated privileges.",
+        { cause: error }
+      );
     }
 
     throw error;
@@ -74,8 +100,8 @@ const applyFileModes = async (
 ): Promise<void> => {
   const directories = new Set<string>();
 
-  for (const file of plan.files) {
-    let directory = path.posix.dirname(file.path);
+  for (const output of [...plan.files, ...(plan.symlinks ?? [])]) {
+    let directory = path.posix.dirname(output.path);
 
     while (directory !== ".") {
       directories.add(directory);
@@ -168,6 +194,7 @@ export const applyGenerationPlan = async (
   destination: string,
   options: ApplyPlanOptions = {}
 ): Promise<void> => {
+  assertSafeDestinationPath(destination);
   const requestedDestination = path.resolve(destination);
   const requestedParent = path.dirname(requestedDestination);
   await assertNoSymlinkAncestors(requestedParent);
@@ -207,7 +234,29 @@ export const applyGenerationPlan = async (
       })
     );
 
+    await Promise.all(
+      (plan.symlinks ?? []).map(async (link) => {
+        const output = resolveOutputPath(staging, link.path);
+        const target = resolveOutputPath(staging, link.targetPath);
+        const targetStats = await lstat(target);
+
+        if (!targetStats.isFile() || targetStats.isSymbolicLink()) {
+          throw new Error(
+            `Symlink "${link.path}" must target a regular planned file.`
+          );
+        }
+
+        await mkdir(path.dirname(output), { mode: 0o755, recursive: true });
+        await createPlannedSymlink(output, target);
+      })
+    );
+
     await applyFileModes(plan, staging);
+
+    if (options.initializeGit === true) {
+      await initializeGitRepository(staging);
+    }
+
     await publishStagingTree(staging, resolvedDestination);
   } catch (error: unknown) {
     await rm(staging, { force: true, recursive: true });

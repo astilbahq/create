@@ -1,0 +1,36 @@
+name: Bug report
+description: Report reproducible incorrect behaviour
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to report a problem.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the behaviour, what you expected, and why it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include the smallest repository, test, or steps that reproduce the problem.
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: Foundation revision
+      description: Provide the commit SHA you used to generate the project.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include relevant Node.js, pnpm, operating-system, profile, framework, and runtime versions.
+    validations:
+      required: true

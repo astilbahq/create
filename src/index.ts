@@ -1,6 +1,7 @@
 export { applyGenerationPlan } from "./generator/apply.js";
 export { createGenerationPlan } from "./generator/plan.js";
 export { normalizeOutputPath, resolveOutputPath } from "./generator/paths.js";
+export { projectProfileNames, profileRegistry } from "./profiles/index.js";
 export { substitutePlaceholders } from "./generator/substitute.js";
 export { validateProjectOptions } from "./options.js";
 export type {

@@ -5,6 +5,8 @@ const PLACEHOLDER_SENTINEL = "{{foundation:";
 
 const VALUES_BY_PLACEHOLDER = {
   description: (options: ProjectOptions) => options.description,
+  descriptionJson: (options: ProjectOptions) =>
+    JSON.stringify(options.description),
   githubOwner: (options: ProjectOptions) => options.githubOwner,
   githubRepo: (options: ProjectOptions) => options.githubRepo,
   packageName: (options: ProjectOptions) => options.packageName,

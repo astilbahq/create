@@ -1,3 +1,5 @@
+import { setImmediate as waitForImmediate } from "node:timers/promises";
+
 import { describe, expect, it } from "vitest";
 
 import { createGenerationPlan } from "../src/generator/plan.js";
@@ -64,6 +66,20 @@ describe("createGenerationPlan", () => {
     expect(
       first.files.find((file) => file.path === "package.json")?.content
     ).toContain('"react": "19.2.7"');
+    expect(first.files.find((file) => file.path === "package.json")?.content)
+      .toBe(`{
+  "name": "@example/project",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Example description",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "19.2.7"
+  }
+}
+`);
   });
 
   it("rejects duplicate output paths", () => {
@@ -81,6 +97,62 @@ describe("createGenerationPlan", () => {
 
     expect(() =>
       createGenerationPlan(["collision"], collisionRegistry, options)
+    ).toThrow(/Output collision/u);
+  });
+
+  it("plans explicit symlinks to generated files", () => {
+    const symlinkRegistry = new Map<string, Profile>([
+      [
+        "base",
+        {
+          files: [{ content: "# Instructions\n", path: "AGENTS.md" }],
+          name: "base",
+          symlinks: [{ path: "CLAUDE.md", targetPath: "AGENTS.md" }],
+        },
+      ],
+    ]);
+
+    const plan = createGenerationPlan(["base"], symlinkRegistry, options);
+
+    expect(plan.symlinks).toEqual([
+      {
+        origin: "base",
+        path: "CLAUDE.md",
+        targetPath: "AGENTS.md",
+      },
+    ]);
+  });
+
+  it("rejects symlinks without a planned file target", () => {
+    const symlinkRegistry = new Map<string, Profile>([
+      [
+        "base",
+        {
+          name: "base",
+          symlinks: [{ path: "CLAUDE.md", targetPath: "AGENTS.md" }],
+        },
+      ],
+    ]);
+
+    expect(() =>
+      createGenerationPlan(["base"], symlinkRegistry, options)
+    ).toThrow(/must target a planned file/u);
+  });
+
+  it("rejects collisions between files and symlinks", () => {
+    const symlinkRegistry = new Map<string, Profile>([
+      [
+        "base",
+        {
+          files: [{ content: "# Instructions\n", path: "AGENTS.md" }],
+          name: "base",
+          symlinks: [{ path: "AGENTS.md", targetPath: "AGENTS.md" }],
+        },
+      ],
+    ]);
+
+    expect(() =>
+      createGenerationPlan(["base"], symlinkRegistry, options)
     ).toThrow(/Output collision/u);
   });
 
@@ -102,6 +174,48 @@ describe("createGenerationPlan", () => {
     expect(() =>
       createGenerationPlan(["conflict"], conflictRegistry, options)
     ).toThrow(/Conflicting script/u);
+  });
+
+  it("treats reordered package conditions as a conflict", () => {
+    const orderSensitiveRegistry = new Map<string, Profile>([
+      [
+        "first",
+        {
+          name: "first",
+          packageJson: {
+            fields: {
+              exports: {
+                // oxlint-disable-next-line eslint/sort-keys -- This test requires order-sensitive conditions.
+                ".": {
+                  types: "./dist/index.d.ts",
+                  import: "./dist/index.js",
+                },
+              },
+            },
+          },
+        },
+      ],
+      [
+        "second",
+        {
+          name: "second",
+          packageJson: {
+            fields: {
+              exports: {
+                ".": {
+                  import: "./dist/index.js",
+                  types: "./dist/index.d.ts",
+                },
+              },
+            },
+          },
+        },
+      ],
+    ]);
+
+    expect(() =>
+      createGenerationPlan(["first", "second"], orderSensitiveRegistry, options)
+    ).toThrow(/conflicting package.json field/iu);
   });
 
   it("rejects reducer-owned package fields", () => {
@@ -202,6 +316,40 @@ describe("createGenerationPlan", () => {
     expect(() =>
       createGenerationPlan(["left"], cycleRegistry, options)
     ).toThrow(/cycle/u);
+  });
+
+  it("rejects asynchronous profile option validation without leaking its rejection", async () => {
+    const validationError = new Error("Asynchronous validation failed.");
+    let leakedRejection = false;
+    const observeRejection = (reason: unknown): void => {
+      if (reason === validationError) {
+        leakedRejection = true;
+      }
+    };
+    const asynchronousRegistry = new Map<string, Profile>([
+      [
+        "async",
+        {
+          name: "async",
+          validateOptions: (async () => {
+            await Promise.resolve();
+            throw validationError;
+          }) as unknown as NonNullable<Profile["validateOptions"]>,
+        },
+      ],
+    ]);
+
+    process.on("unhandledRejection", observeRejection);
+
+    try {
+      expect(() =>
+        createGenerationPlan(["async"], asynchronousRegistry, options)
+      ).toThrow(/must be synchronous/u);
+      await waitForImmediate();
+      expect(leakedRejection).toBe(false);
+    } finally {
+      process.off("unhandledRejection", observeRejection);
+    }
   });
 
   it("rejects case-insensitive output collisions", () => {

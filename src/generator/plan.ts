@@ -4,7 +4,20 @@ import { compareCodeUnits } from "./compare.js";
 import { buildPackageJson } from "./package-json.js";
 import { normalizeOutputPath } from "./paths.js";
 import { substitutePlaceholders } from "./substitute.js";
-import type { GenerationPlan, PlannedFile, Profile } from "./types.js";
+import type {
+  GenerationPlan,
+  PlannedFile,
+  PlannedSymlink,
+  Profile,
+} from "./types.js";
+
+const consumeRejectedValidation = async (value: unknown): Promise<void> => {
+  try {
+    await value;
+  } catch {
+    // The synchronous contract error is the actionable failure.
+  }
+};
 
 const resolveProfiles = (
   selectedNames: readonly string[],
@@ -66,7 +79,7 @@ const resolveProfiles = (
 };
 
 const validatePortablePathSet = (
-  plannedByPath: ReadonlyMap<string, PlannedFile>
+  plannedByPath: ReadonlyMap<string, { readonly path: string }>
 ): void => {
   const pathByPortableKey = new Map<string, string>();
 
@@ -99,6 +112,44 @@ const validatePortablePathSet = (
   }
 };
 
+const planSymlinks = (
+  profiles: readonly Profile[],
+  plannedByPath: ReadonlyMap<string, PlannedFile>
+): Map<string, PlannedSymlink> => {
+  const symlinkByPath = new Map<string, PlannedSymlink>();
+
+  for (const profile of profiles) {
+    for (const declaration of profile.symlinks ?? []) {
+      const path = normalizeOutputPath(declaration.path);
+      const targetPath = normalizeOutputPath(declaration.targetPath);
+      const previous =
+        plannedByPath.get(path)?.origin ?? symlinkByPath.get(path)?.origin;
+
+      if (previous !== undefined) {
+        throw new Error(
+          `Output collision at "${path}" between "${previous}" and "${profile.name}".`
+        );
+      }
+
+      symlinkByPath.set(path, {
+        origin: profile.name,
+        path,
+        targetPath,
+      });
+    }
+  }
+
+  for (const symlink of symlinkByPath.values()) {
+    if (!plannedByPath.has(symlink.targetPath)) {
+      throw new Error(
+        `Symlink "${symlink.path}" must target a planned file, but "${symlink.targetPath}" is not one.`
+      );
+    }
+  }
+
+  return symlinkByPath;
+};
+
 export const createGenerationPlan = (
   selectedNames: readonly string[],
   registry: ReadonlyMap<string, Profile>,
@@ -113,6 +164,15 @@ export const createGenerationPlan = (
   const plannedByPath = new Map<string, PlannedFile>();
 
   for (const profile of profiles) {
+    const validationResult: unknown = profile.validateOptions?.(options);
+
+    if (validationResult !== undefined) {
+      void consumeRejectedValidation(validationResult);
+      throw new Error(
+        `Profile "${profile.name}" option validation must be synchronous.`
+      );
+    }
+
     for (const declaration of profile.files ?? []) {
       const path = normalizeOutputPath(declaration.path);
 
@@ -149,14 +209,23 @@ export const createGenerationPlan = (
     });
   }
 
-  validatePortablePathSet(plannedByPath);
+  const symlinkByPath = planSymlinks(profiles, plannedByPath);
+  const plannedOutputs = new Map<string, { readonly path: string }>([
+    ...plannedByPath,
+    ...symlinkByPath,
+  ]);
+  validatePortablePathSet(plannedOutputs);
 
   const files = [...plannedByPath.values()].toSorted((left, right) =>
+    compareCodeUnits(left.path, right.path)
+  );
+  const symlinks = [...symlinkByPath.values()].toSorted((left, right) =>
     compareCodeUnits(left.path, right.path)
   );
 
   return Object.freeze({
     files: Object.freeze(files.map((file) => Object.freeze(file))),
     profiles: Object.freeze(profiles.map((profile) => profile.name)),
+    symlinks: Object.freeze(symlinks.map((symlink) => Object.freeze(symlink))),
   });
 };

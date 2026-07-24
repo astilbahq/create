@@ -9,17 +9,18 @@ const TOP_LEVEL_ORDER = [
   "private",
   "description",
   "license",
+  "files",
   "type",
   "sideEffects",
-  "bin",
-  "files",
-  "scripts",
   "exports",
-  "engines",
-  "packageManager",
+  "bin",
+  "publishConfig",
+  "scripts",
   "dependencies",
   "devDependencies",
   "peerDependencies",
+  "engines",
+  "packageManager",
   "pnpm",
 ] as const;
 
@@ -37,22 +38,6 @@ const assertStaticKey = (key: string, context: string): void => {
   }
 };
 
-const canonicalizeJsonValue = (value: JsonValue): JsonValue => {
-  if (Array.isArray(value)) {
-    return value.map(canonicalizeJsonValue);
-  }
-
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .toSorted(([left], [right]) => compareCodeUnits(left, right))
-        .map(([key, item]) => [key, canonicalizeJsonValue(item)])
-    );
-  }
-
-  return value;
-};
-
 const setUniqueValue = <Value extends JsonValue>(
   target: Map<string, Value>,
   key: string,
@@ -63,8 +48,7 @@ const setUniqueValue = <Value extends JsonValue>(
 
   if (
     existing !== undefined &&
-    JSON.stringify(canonicalizeJsonValue(existing)) !==
-      JSON.stringify(canonicalizeJsonValue(value))
+    JSON.stringify(existing) !== JSON.stringify(value)
   ) {
     throw new Error(`Conflicting ${context} value for "${key}".`);
   }
@@ -101,12 +85,10 @@ const substituteJsonValue = (
 
   if (value !== null && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value)
-        .toSorted(([left], [right]) => compareCodeUnits(left, right))
-        .map(([key, item]) => {
-          assertStaticKey(key, "package.json");
-          return [key, substituteJsonValue(item, options)];
-        })
+      Object.entries(value).map(([key, item]) => {
+        assertStaticKey(key, "package.json");
+        return [key, substituteJsonValue(item, options)];
+      })
     );
   }
 
@@ -212,7 +194,13 @@ export const buildPackageJson = (
     fields.set("peerDependencies", sortObject(peerDependencies));
   }
 
-  const substituted = substituteJsonValue(orderTopLevelFields(fields), options);
+  const ordered = orderTopLevelFields(fields);
+  const substituted = Object.fromEntries(
+    Object.entries(ordered).map(([key, value]) => [
+      key,
+      substituteJsonValue(value, options),
+    ])
+  );
 
   return `${JSON.stringify(substituted, null, 2)}\n`;
 };

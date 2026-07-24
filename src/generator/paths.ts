@@ -1,11 +1,23 @@
 import path from "node:path";
 
 const WINDOWS_SEPARATOR_PATTERN = /\\/u;
+const DESTINATION_CONTROL_CHARACTER_PATTERN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 const WINDOWS_DEVICE_NAME_PATTERN =
   /^(?:aux|con|nul|prn|com[1-9]|lpt[1-9])(?:\.|$)/iu;
 const WINDOWS_FORBIDDEN_CHARACTERS = '<>:"|?*';
 
 export const INCOMPLETE_MARKER_PATH = ".typescript-foundation-incomplete";
+
+export const assertSafeDestinationPath = (candidate: string): void => {
+  if (
+    candidate.length === 0 ||
+    DESTINATION_CONTROL_CHARACTER_PATTERN.test(candidate)
+  ) {
+    throw new Error(
+      "Destination must not be empty or contain control or formatting characters."
+    );
+  }
+};
 
 const isPortableSegment = (segment: string): boolean => {
   if (
@@ -34,6 +46,24 @@ const isPortableSegment = (segment: string): boolean => {
   }
 
   return true;
+};
+
+export const assertSafeDestinationArgument = (candidate: string): void => {
+  assertSafeDestinationPath(candidate);
+
+  const segments = candidate.split("/");
+
+  if (
+    path.isAbsolute(candidate) ||
+    path.win32.isAbsolute(candidate) ||
+    path.win32.parse(candidate).root.length > 0 ||
+    WINDOWS_SEPARATOR_PATTERN.test(candidate) ||
+    segments.some((segment) => !isPortableSegment(segment))
+  ) {
+    throw new Error(
+      "Destination must be a normalized portable relative path without traversal."
+    );
+  }
 };
 
 export const normalizeOutputPath = (candidate: string): string => {

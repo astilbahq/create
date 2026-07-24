@@ -1,3 +1,5 @@
+import type { ProjectOptions } from "../options.js";
+
 type FileMode = 0o644 | 0o755;
 
 export interface TextFileDeclaration {
@@ -26,6 +28,7 @@ export interface Profile {
   readonly name: string;
   readonly packageJson?: PackageJsonFragment;
   readonly requires?: readonly string[];
+  readonly validateOptions?: (options: ProjectOptions) => undefined;
 }
 
 export interface PlannedFile {

@@ -21,6 +21,15 @@ describe("substitutePlaceholders", () => {
     ).toBe("example-project belongs to example.");
   });
 
+  it("serializes descriptions for JavaScript source contexts", () => {
+    expect(
+      substitutePlaceholders("const value = {{foundation:descriptionJson}};", {
+        ...options,
+        description: '" /><script>alert("no")</script>',
+      })
+    ).toBe('const value = "\\" /><script>alert(\\"no\\")</script>";');
+  });
+
   it("rejects unknown placeholders", () => {
     expect(() =>
       substitutePlaceholders("{{foundation:ambientSecret}}", options)

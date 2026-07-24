@@ -6,6 +6,14 @@ import { normalizeOutputPath } from "./paths.js";
 import { substitutePlaceholders } from "./substitute.js";
 import type { GenerationPlan, PlannedFile, Profile } from "./types.js";
 
+const consumeRejectedValidation = async (value: unknown): Promise<void> => {
+  try {
+    await value;
+  } catch {
+    // The synchronous contract error is the actionable failure.
+  }
+};
+
 const resolveProfiles = (
   selectedNames: readonly string[],
   registry: ReadonlyMap<string, Profile>
@@ -113,6 +121,15 @@ export const createGenerationPlan = (
   const plannedByPath = new Map<string, PlannedFile>();
 
   for (const profile of profiles) {
+    const validationResult: unknown = profile.validateOptions?.(options);
+
+    if (validationResult !== undefined) {
+      void consumeRejectedValidation(validationResult);
+      throw new Error(
+        `Profile "${profile.name}" option validation must be synchronous.`
+      );
+    }
+
     for (const declaration of profile.files ?? []) {
       const path = normalizeOutputPath(declaration.path);
 

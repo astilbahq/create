@@ -12,7 +12,9 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
+import { initializeGitRepository } from "./git.js";
 import {
+  assertSafeDestinationPath,
   INCOMPLETE_MARKER_PATH,
   isWithinPath,
   resolveOutputPath,
@@ -21,6 +23,7 @@ import type { GenerationPlan } from "./types.js";
 
 export interface ApplyPlanOptions {
   readonly forbiddenRoots?: readonly string[];
+  readonly initializeGit?: boolean;
 }
 
 const pathExists = async (candidate: string): Promise<boolean> => {
@@ -168,6 +171,7 @@ export const applyGenerationPlan = async (
   destination: string,
   options: ApplyPlanOptions = {}
 ): Promise<void> => {
+  assertSafeDestinationPath(destination);
   const requestedDestination = path.resolve(destination);
   const requestedParent = path.dirname(requestedDestination);
   await assertNoSymlinkAncestors(requestedParent);
@@ -208,6 +212,11 @@ export const applyGenerationPlan = async (
     );
 
     await applyFileModes(plan, staging);
+
+    if (options.initializeGit === true) {
+      await initializeGitRepository(staging);
+    }
+
     await publishStagingTree(staging, resolvedDestination);
   } catch (error: unknown) {
     await rm(staging, { force: true, recursive: true });

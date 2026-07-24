@@ -1,0 +1,116 @@
+import type { Profile } from "../generator/types.js";
+import { file, projectProfileConflicts } from "./shared.js";
+
+export const astroProfile: Profile = {
+  conflicts: projectProfileConflicts("astro"),
+  files: [
+    file(
+      "astro.config.mjs",
+      `
+import { defineConfig } from "astro/config";
+
+export default defineConfig({});
+`
+    ),
+    file(
+      "knip.json",
+      `
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["src/pages/**/*.astro!"],
+  "project": ["src/**/*.{astro,ts}!", "*.config.{mjs,ts}!"]
+}
+`
+    ),
+    file(
+      "src/pages/index.astro",
+      `
+---
+const title = "{{foundation:projectName}}";
+const description = {{foundation:descriptionJson}};
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="description" content={description} />
+    <meta name="viewport" content="width=device-width" />
+    <title>{title}</title>
+  </head>
+  <body>
+    <main>
+      <h1>{title}</h1>
+      <p>{description}</p>
+    </main>
+  </body>
+</html>
+`
+    ),
+    file(
+      "tests/smoke.test.ts",
+      `
+import { describe, expect, it } from "vitest";
+
+describe("project", () => {
+  it("has a name", () => {
+    expect("{{foundation:projectName}}").not.toHaveLength(0);
+  });
+});
+`
+    ),
+    file(
+      "tsconfig.json",
+      `
+{
+  "extends": "astro/tsconfigs/strict",
+  "compilerOptions": {
+    "exactOptionalPropertyTypes": true,
+    "noUncheckedIndexedAccess": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": [".astro/types.d.ts", "**/*"],
+  "exclude": ["dist"]
+}
+`
+    ),
+    file(
+      "vitest.config.ts",
+      `
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    environment: "node",
+    include: ["tests/**/*.test.ts"],
+  },
+});
+`
+    ),
+  ],
+  name: "astro",
+  packageJson: {
+    dependencies: {
+      astro: "7.1.3",
+    },
+    devDependencies: {
+      "@astrojs/check": "0.9.9",
+      "@types/node": "24.13.3",
+    },
+    fields: {
+      private: true,
+    },
+    scripts: {
+      build: "astro build",
+      dev: "astro dev",
+      knip: "knip",
+      preview: "astro preview",
+      test: "vitest run",
+      "test:watch": "vitest",
+      typecheck: "astro check",
+      verify:
+        "pnpm check && pnpm typecheck && pnpm test && pnpm knip && pnpm build",
+    },
+  },
+  requires: ["base"],
+};

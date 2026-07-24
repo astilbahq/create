@@ -72,6 +72,17 @@ describe("applyGenerationPlan", () => {
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
+  it("publishes an initialized Git repository as part of the tree", async () => {
+    const root = await createTemporaryRoot();
+    const destination = path.join(root, "project");
+
+    await applyGenerationPlan(plan, destination, { initializeGit: true });
+
+    await expect(
+      readFile(path.join(destination, ".git", "HEAD"), "utf-8")
+    ).resolves.toBe("ref: refs/heads/main\n");
+  });
+
   it("refuses an existing destination without changing it", async () => {
     const root = await createTemporaryRoot();
     const destination = path.join(root, "project");
@@ -95,6 +106,25 @@ describe("applyGenerationPlan", () => {
       })
     ).rejects.toThrow(/protected path/u);
   });
+
+  it.each([
+    "project\u0085name",
+    "project\u2028name",
+    "project\u2029name",
+    "project\u202Ename",
+  ])(
+    "refuses destination control or formatting characters in %s",
+    async (name) => {
+      const root = await createTemporaryRoot();
+
+      await expect(
+        applyGenerationPlan(plan, path.join(root, name))
+      ).rejects.toThrow(/control or formatting characters/u);
+      await expect(lstat(path.join(root, name))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    }
+  );
 
   it("refuses symlinked destination ancestors", async () => {
     const root = await createTemporaryRoot();

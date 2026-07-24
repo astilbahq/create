@@ -13,7 +13,7 @@ pnpm test:consumers
 pnpm test:package
 ```
 
-The repository pins Node.js and pnpm versions. Run `pnpm install` again after dependency changes and commit the resulting `pnpm-lock.yaml`.
+The repository pins Node.js and pnpm versions. Run `pnpm install` again after dependency changes and commit the resulting `pnpm-lock.yaml`. After changing generated dependencies or managed output, increment each affected recipe version and run `pnpm recipes:update`. Commit the canonical recipe lockfiles and contract history.
 
 ## Generated-output changes
 
@@ -22,6 +22,7 @@ The repository pins Node.js and pnpm versions. Run `pnpm install` again after de
 - Run the affected clean-room consumer builds. Run the complete matrix before opening a pull request.
 - Keep universal defaults small. Public project shapes belong in a versioned recipe; future optional features require recipe-specific adapters.
 - Preserve output ownership metadata and fail closed when a generated path or structured field cannot be merged safely.
+- Treat a released recipe ID and version as immutable. Generated-output changes require an intentional recipe-version increment and updated contract fingerprint.
 - Do not add organization-specific policy, credentials, deployment identifiers, or private URLs.
 
 ## Pull requests

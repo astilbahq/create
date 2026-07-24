@@ -57,10 +57,16 @@ const createTarball = async (temporaryRoot: string): Promise<string> => {
 const inspectTarball = async (tarball: string): Promise<void> => {
   const tarListing = await run("tar", ["-tzf", tarball], repositoryRoot);
   const entries = tarListing.trim().split("\n").filter(Boolean);
+  const recipeLockfiles = projectRecipeIds.map(
+    (recipe) => `package/recipes/${recipe}/pnpm-lock.yaml`
+  );
   const allowedFiles = new Set([
     "package/LICENSE",
     "package/README.md",
     "package/package.json",
+    "package/recipes/contracts.json",
+    "package/schemas/create-project-v1.json",
+    ...recipeLockfiles,
   ]);
   const unexpected = entries.filter(
     (entry) =>
@@ -106,7 +112,7 @@ const verifyGeneratedRecipe = async (
       "--package-name",
       `@example/${recipe}`,
       "--no-git",
-      "--install",
+      "--no-install",
       "--json",
     ],
     temporaryRoot
@@ -122,7 +128,7 @@ const verifyGeneratedRecipe = async (
     result.ok !== true ||
     result.recipe !== recipe ||
     result.schemaVersion !== 1 ||
-    result.installed !== true
+    result.installed !== false
   ) {
     throw new Error(`Packed CLI returned an invalid result for ${recipe}.`);
   }
@@ -141,6 +147,7 @@ const verifyGeneratedRecipe = async (
     throw new Error(`Generated manifest is invalid for ${recipe}.`);
   }
 
+  await run("pnpm", ["install", "--frozen-lockfile"], destination);
   await run("pnpm", ["verify"], destination);
 };
 

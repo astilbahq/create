@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { compareCodeUnits } from "./generator/compare.js";
-import { createGenerationPlan } from "./generator/plan.js";
+import { appendPlannedFile, createGenerationPlan } from "./generator/plan.js";
 import type {
   GenerationPlan,
   JsonValue,
@@ -9,10 +9,11 @@ import type {
 } from "./generator/types.js";
 import type { ProjectOptions } from "./options.js";
 import { profileRegistry } from "./profiles/index.js";
+import { readRecipeLockfile } from "./recipe-lockfiles.js";
 import { getProjectRecipe } from "./recipes.js";
 import type { ProjectRecipeId } from "./recipes.js";
 
-export const CREATE_ASTILBA_VERSION = "0.1.0";
+export const CREATE_ASTILBA_VERSION = "0.1.1";
 export const PROJECT_MANIFEST_PATH = ".astilba/project.json";
 export const PROJECT_MANIFEST_SCHEMA =
   "https://astilba.com/schemas/create/v1.json";
@@ -152,7 +153,19 @@ export const createProjectGenerationPlan = (
   options: ProjectOptions
 ): GenerationPlan => {
   const recipe = getProjectRecipe(recipeId);
-  const plan = createGenerationPlan([recipe.profile], profileRegistry, options);
+  const basePlan = createGenerationPlan(
+    [recipe.profile],
+    profileRegistry,
+    options
+  );
+  const lockfile: PlannedFile = Object.freeze({
+    content: readRecipeLockfile(recipeId),
+    mode: 0o644,
+    origin: `recipe:${recipeId}:lockfile`,
+    ownership: "managed",
+    path: "pnpm-lock.yaml",
+  });
+  const plan = appendPlannedFile(basePlan, lockfile);
   const reservedRoot = PROJECT_MANIFEST_PATH.split("/")[0] ?? ".astilba";
   const conflictingOutput = [
     ...plan.files.map((file) => file.path),
@@ -178,12 +191,5 @@ export const createProjectGenerationPlan = (
     path: PROJECT_MANIFEST_PATH,
   });
 
-  return Object.freeze({
-    ...plan,
-    files: Object.freeze(
-      [...plan.files, manifestFile].toSorted((left, right) =>
-        compareCodeUnits(left.path, right.path)
-      )
-    ),
-  });
+  return appendPlannedFile(plan, manifestFile);
 };

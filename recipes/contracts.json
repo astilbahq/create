@@ -1,0 +1,49 @@
+{
+  "recipes": {
+    "typescript-library": {
+      "currentVersion": 2,
+      "versions": {
+        "1": {
+          "outputSha256": "8ef2071d7e79df1c0215a0d918eb5024253993e469b6586ea13c173b7ecb93aa"
+        },
+        "2": {
+          "outputSha256": "ad29acb30fb3753ad033b3df7ac068d5aa877735cc0094a06ae32f72f6885b78"
+        }
+      }
+    },
+    "react-vite-spa": {
+      "currentVersion": 2,
+      "versions": {
+        "1": {
+          "outputSha256": "d768691a4f2d359e4d9e4afca0d1176d2128bc34803dcb79e2bf963cfcf3f523"
+        },
+        "2": {
+          "outputSha256": "7d22af6b0e32700794482cd949b29a9173430b7c1c8c61c28a6f4b3a92ae8a2d"
+        }
+      }
+    },
+    "astro-static-site": {
+      "currentVersion": 2,
+      "versions": {
+        "1": {
+          "outputSha256": "3d5439d879119cff28183bf2f9ec60c8846633fc638219f0924dd8741867c7a8"
+        },
+        "2": {
+          "outputSha256": "8b144d2f3156d9dc245d76656fca76e0b7fb0b2b1d07555ebdbad6cb4fd0c80a"
+        }
+      }
+    },
+    "cloudflare-worker-service": {
+      "currentVersion": 2,
+      "versions": {
+        "1": {
+          "outputSha256": "3edfa5199941ce7a6b4d47e20c50059a2bc92add550d8e26964b3733be5f45f2"
+        },
+        "2": {
+          "outputSha256": "a1b4d1afba7126f53f7e506d3da3ecab2417c1099dac1da3746b20db95b77d1c"
+        }
+      }
+    }
+  },
+  "schemaVersion": 1
+}

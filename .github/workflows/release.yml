@@ -49,6 +49,14 @@ jobs:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
         run: pnpm exec tsx scripts/verify-release-version.ts
 
+      - name: Verify the published manifest schema
+        run: |
+          curl --fail --location --retry 3 --silent --show-error \
+            https://astilba.com/schemas/create/v1.json \
+            --output "$RUNNER_TEMP/create-project-v1.json"
+          pnpm exec tsx scripts/verify-published-schema.ts \
+            "$RUNNER_TEMP/create-project-v1.json"
+
       - name: Verify repository
         run: pnpm verify
 

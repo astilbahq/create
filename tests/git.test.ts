@@ -77,4 +77,19 @@ describe("initializeGitRepository", () => {
       code: "ENOENT",
     });
   });
+
+  it("honours cancellation before starting Git", async () => {
+    const root = await createTemporaryRoot();
+    const repository = path.join(root, "repository");
+    const controller = new AbortController();
+    await mkdir(repository);
+    controller.abort(new Error("test cancellation"));
+
+    await expect(
+      initializeGitRepository(repository, process.env, controller.signal)
+    ).rejects.toThrow();
+    await expect(lstat(path.join(repository, ".git"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
 });

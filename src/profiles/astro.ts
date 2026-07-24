@@ -3,6 +3,7 @@ import { dependencyVersions } from "./dependency-versions.js";
 import { file, projectProfileConflicts, seededFile } from "./shared.js";
 
 export const astroProfile: Profile = {
+  allowedBuildDependencies: ["sharp"],
   conflicts: projectProfileConflicts("astro"),
   files: [
     file(

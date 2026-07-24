@@ -1,6 +1,6 @@
 {
   "name": "create-astilba",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Create production-ready TypeScript projects with Astilba's maintained foundations.",
   "keywords": [
     "astilba",
@@ -23,7 +23,9 @@
     "create-astilba": "./dist/bin.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "recipes",
+    "schemas"
   ],
   "type": "module",
   "sideEffects": false,
@@ -41,6 +43,10 @@
     "fix": "ultracite fix",
     "generate:workflow-audit-fixture": "tsx scripts/generate-workflow-audit-fixture.ts",
     "knip": "knip",
+    "recipes:update": "pnpm recipes:update-lockfiles && pnpm recipes:update-contracts",
+    "recipes:update-contracts": "tsx scripts/update-recipe-contracts.ts",
+    "recipes:update-lockfiles": "tsx scripts/update-recipe-lockfiles.ts",
+    "recipes:verify-history": "tsx scripts/verify-recipe-history.ts",
     "test": "vitest run",
     "test:consumers": "tsx scripts/verify-consumers.ts",
     "test:package": "pnpm build && tsx scripts/verify-packed-package.ts",
@@ -53,6 +59,7 @@
   },
   "devDependencies": {
     "@types/node": "24.13.3",
+    "ajv": "8.20.0",
     "knip": "6.26.0",
     "oxfmt": "0.59.0",
     "oxlint": "1.74.0",

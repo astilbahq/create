@@ -41,6 +41,7 @@ The questionnaire can explain project kind, framework, build tool, and runtime, 
 Every recipe receives:
 
 - exact Node.js, pnpm, dependency, and GitHub Action pins;
+- a recipe-owned `pnpm-lock.yaml` that makes first-run CI reproducible even when dependency installation was skipped;
 - strict TypeScript, Ultracite with Oxfmt and Oxlint, Vitest, and Knip;
 - a frozen-lockfile CI matrix across supported Node.js majors;
 - Actionlint, Zizmor, OSV-Scanner, PR-title validation, CodeQL, and dependency review;
@@ -73,11 +74,15 @@ From this checkout, run the development CLI with:
 pnpm create
 ```
 
-`pnpm test:consumers` generates, installs, verifies, and builds every recipe as an independent project. `pnpm test:package` repeats that test through the actual npm tarball.
+`pnpm test:consumers` generates, installs with each recipe's frozen lockfile, verifies, and builds every recipe as an independent project. `pnpm test:package` repeats that test through the actual npm tarball.
+
+When a dependency or generated foundation changes, increment each affected recipe version and then run `pnpm recipes:update`. The command regenerates every canonical lockfile and records the new output fingerprint while preserving every published version. It refuses to rewrite an existing version's contract.
 
 ## Portability
 
 Generated projects keep `AGENTS.md` canonical with a `CLAUDE.md` symbolic link. On Windows, symbolic-link creation requires Developer Mode or an elevated shell. Astilba Create fails atomically when the platform cannot create the link, so it never leaves a partial project.
+
+Generation prepares the complete project in a sibling staging directory before publication. The final publication step refuses existing destinations and uses a visible incomplete marker while moving the staged top-level entries. A rare filesystem failure is rolled back when possible; if rollback itself fails, the marker remains so incomplete output cannot be mistaken for a successful project.
 
 ## Deliberate boundaries
 

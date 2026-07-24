@@ -17,6 +17,7 @@ import {
   resolveScaffoldRequest,
   scaffoldProject,
 } from "../src/cli.js";
+import type { CreateAstilbaError } from "../src/errors.js";
 import { PROJECT_MANIFEST_PATH } from "../src/manifest.js";
 
 const temporaryRoots: string[] = [];
@@ -286,5 +287,63 @@ describe("Astilba Create CLI", () => {
       PROJECT_MANIFEST_PATH
     );
     await expect(lstat(destination)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("reports cancellation before generation with stable diagnostics", async () => {
+    const controller = new AbortController();
+    controller.abort(new Error("test cancellation"));
+
+    await expect(
+      scaffoldProject(
+        {
+          destination: "/unused/project",
+          dryRun: false,
+          initializeGit: false,
+          installDependencies: false,
+          json: true,
+          options: {
+            description: "An example application.",
+            githubOwner: "example",
+            githubRepo: "project",
+            packageName: "@example/project",
+            projectName: "project",
+          },
+          recipe: "react-vite-spa",
+        },
+        [],
+        controller.signal
+      )
+    ).rejects.toMatchObject({
+      code: "CANCELLED",
+      destination: "/unused/project",
+      exitCode: 130,
+      phase: "input",
+      projectCreated: false,
+    } satisfies Partial<CreateAstilbaError>);
+  });
+
+  it("reports planning failures with generation diagnostics", async () => {
+    await expect(
+      scaffoldProject({
+        destination: "/unused/project",
+        dryRun: true,
+        initializeGit: false,
+        installDependencies: false,
+        json: true,
+        options: {
+          description: "An example application.",
+          githubOwner: "example",
+          githubRepo: "project",
+          packageName: "invalid package name",
+          projectName: "project",
+        },
+        recipe: "react-vite-spa",
+      })
+    ).rejects.toMatchObject({
+      code: "GENERATION_FAILED",
+      destination: "/unused/project",
+      phase: "generation",
+      projectCreated: false,
+    } satisfies Partial<CreateAstilbaError>);
   });
 });

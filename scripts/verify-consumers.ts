@@ -69,7 +69,7 @@ const verifyRecipe = async (
     },
     recipe,
   });
-  await runCommand("pnpm", ["install"], destination);
+  await runCommand("pnpm", ["install", "--frozen-lockfile"], destination);
   await runCommand("pnpm", ["verify"], destination);
 };
 

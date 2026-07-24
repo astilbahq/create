@@ -20,6 +20,8 @@ describe("validateProjectOptions", () => {
     ["projectName", "../escape"],
     ["packageName", "@scope/../escape"],
     ["description", "unsafe\u0000description"],
+    ["description", "visually\u202Ereordered"],
+    ["description", "zero\u200Dwidth"],
     ["githubOwner", "-invalid"],
     ["githubRepo", "invalid/repository"],
   ] as const)("rejects an unsafe %s", (field, value) => {

@@ -361,13 +361,19 @@ describe("maintenance configuration", () => {
     const generatedWorkflow = githubFiles.find(
       (candidate) => candidate.path === ".github/workflows/verification.yml"
     )?.content;
-    const matrix = `node: ["${toolchainVersions.nodeMinimum}", "${toolchainVersions.node}"]`;
+    const minimumLane = `- label: minimum
+            version: "${toolchainVersions.nodeMinimum}"`;
+    const currentLane = `- label: current
+            version: "${toolchainVersions.node}"`;
 
-    expect(rootWorkflow.split(matrix)).toHaveLength(3);
+    expect(rootWorkflow.split(minimumLane)).toHaveLength(3);
+    expect(rootWorkflow.split(currentLane)).toHaveLength(3);
     expect(rootWorkflow).toContain(
-      `name: Consumer (\${{ matrix.profile }}, Node \${{ matrix.node }})`
+      `name: Consumer (\${{ matrix.profile }}, Node \${{ matrix.node.label }})`
     );
-    expect(generatedWorkflow).toContain(matrix);
+    expect(rootWorkflow).toContain(`node-version: \${{ matrix.node.version }}`);
+    expect(generatedWorkflow).toContain(minimumLane);
+    expect(generatedWorkflow).toContain(currentLane);
   });
 
   it("lints and audits emitted workflows in CI", async () => {

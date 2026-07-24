@@ -14,13 +14,17 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify (Node ${{ matrix.node }})
+    name: Verify (Node ${{ matrix.node.label }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        node: ["22.18.0", "24.18.0"]
+        node:
+          - label: minimum
+            version: "22.18.0"
+          - label: current
+            version: "24.18.0"
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -34,7 +38,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           cache: pnpm
-          node-version: ${{ matrix.node }}
+          node-version: ${{ matrix.node.version }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -43,13 +47,17 @@ jobs:
         run: pnpm verify
 
   consumers:
-    name: Consumer (${{ matrix.profile }}, Node ${{ matrix.node }})
+    name: Consumer (${{ matrix.profile }}, Node ${{ matrix.node.label }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        node: ["22.18.0", "24.18.0"]
+        node:
+          - label: minimum
+            version: "22.18.0"
+          - label: current
+            version: "24.18.0"
         profile: [astro, library, react, workers]
     steps:
       - name: Check out repository
@@ -64,7 +72,7 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           cache: pnpm
-          node-version: ${{ matrix.node }}
+          node-version: ${{ matrix.node.version }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

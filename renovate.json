@@ -51,7 +51,7 @@
       "description": "Keep the current Node.js CI pin aligned with generated projects.",
       "managerFilePatterns": ["/^\\.github\\/workflows\\/verification\\.yml$/"],
       "matchStrings": [
-        "node:\\s*\\[\"\\d+\\.\\d+\\.\\d+\",\\s*\"(?<currentValue>\\d+\\.\\d+\\.\\d+)\"\\]"
+        "- label:\\s*current\\s+version:\\s*\"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
       ],
       "depNameTemplate": "node",
       "datasourceTemplate": "node-version"

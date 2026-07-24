@@ -300,13 +300,17 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify (Node \${{ matrix.node }})
+    name: Verify (Node \${{ matrix.node.label }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        node: ["${toolchainVersions.nodeMinimum}", "${toolchainVersions.node}"]
+        node:
+          - label: minimum
+            version: "${toolchainVersions.nodeMinimum}"
+          - label: current
+            version: "${toolchainVersions.node}"
     steps:
       - name: Check out repository
         uses: ${CHECKOUT_ACTION}
@@ -320,7 +324,7 @@ jobs:
         uses: ${SETUP_NODE_ACTION}
         with:
           cache: pnpm
-          node-version: \${{ matrix.node }}
+          node-version: \${{ matrix.node.version }}
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -455,7 +459,7 @@ CodeQL and dependency review run only when the repository is public, avoiding an
       "description": "Keep the current Node.js CI pin current.",
       "managerFilePatterns": ["/^\\\\.github\\\\/workflows\\\\/verification\\\\.yml$/"],
       "matchStrings": [
-        "node:\\\\s*\\\\[\\"\\\\d+\\\\.\\\\d+\\\\.\\\\d+\\",\\\\s*\\"(?<currentValue>\\\\d+\\\\.\\\\d+\\\\.\\\\d+)\\"\\\\]"
+        "- label:\\\\s*current\\\\s+version:\\\\s*\\"(?<currentValue>\\\\d+\\\\.\\\\d+\\\\.\\\\d+)\\""
       ],
       "depNameTemplate": "node",
       "datasourceTemplate": "node-version"

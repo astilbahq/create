@@ -88,6 +88,15 @@ describe("project profiles", () => {
       expect(contents.get("README.md")).toContain(
         "`CLAUDE.md` is a symbolic link"
       );
+      expect(contents.get("pnpm-workspace.yaml")).toContain(
+        '"brace-expansion@>=5.0.0 <5.0.8": 5.0.8'
+      );
+      expect(contents.get("pnpm-workspace.yaml")).toContain(
+        "minimumReleaseAgeExclude:\n  - brace-expansion@5.0.8"
+      );
+      expect(contents.get("pnpm-workspace.yaml")).not.toMatch(
+        /^\s*-\s+brace-expansion\s*$/mu
+      );
       expect([...contents.values()].join("\n")).not.toContain(
         "astilbahq/create"
       );

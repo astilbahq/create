@@ -155,6 +155,13 @@ allowBuilds:
   workerd: true
 
 minimumReleaseAge: 4320
+
+# Exact security exception for GHSA-mh99-v99m-4gvg.
+minimumReleaseAgeExclude:
+  - brace-expansion@5.0.8
+
+overrides:
+  "brace-expansion@>=5.0.0 <5.0.8": 5.0.8
 `
     ),
   ],

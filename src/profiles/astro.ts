@@ -1,4 +1,5 @@
 import type { Profile } from "../generator/types.js";
+import { dependencyVersions } from "./dependency-versions.js";
 import { file, projectProfileConflicts } from "./shared.js";
 
 export const astroProfile: Profile = {
@@ -91,11 +92,11 @@ export default defineConfig({
   name: "astro",
   packageJson: {
     dependencies: {
-      astro: "7.1.3",
+      astro: dependencyVersions.astro,
     },
     devDependencies: {
-      "@astrojs/check": "0.9.9",
-      "@types/node": "24.13.3",
+      "@astrojs/check": dependencyVersions["@astrojs/check"],
+      "@types/node": dependencyVersions["@types/node"],
     },
     fields: {
       private: true,

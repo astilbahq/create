@@ -46,6 +46,11 @@ describe("project profiles", () => {
       expect(first.profiles).toEqual(["base", profile]);
       expect(paths).toContain("package.json");
       expect(paths).toContain("README.md");
+      expect(paths).toContain("CLAUDE.md");
+      expect(paths).toContain("SECURITY.md");
+      expect(paths).toContain("renovate.json");
+      expect(paths).toContain(".github/workflows/verification.yml");
+      expect(paths).toContain(".github/workflows/codeql.yml");
       expect(paths).toContain("tsconfig.json");
       expect(paths).toContain("knip.json");
       expect(paths).toContain("vitest.config.ts");
@@ -118,5 +123,37 @@ describe("project profiles", () => {
         projectName: "my_library",
       })
     ).not.toThrow();
+  });
+
+  it("emits parseable maintenance configuration and immutable workflow references", () => {
+    const plan = createGenerationPlan(["library"], profileRegistry, options);
+    const renovate = plan.files.find(
+      (plannedFile) => plannedFile.path === "renovate.json"
+    );
+    const workflows = plan.files.filter((plannedFile) =>
+      plannedFile.path.startsWith(".github/workflows/")
+    );
+
+    expect(() => JSON.parse(renovate?.content ?? "")).not.toThrow();
+    expect(workflows.length).toBeGreaterThan(0);
+
+    for (const workflow of workflows) {
+      const references = workflow.content
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith("uses: "));
+
+      expect(references.length).toBeGreaterThan(0);
+
+      for (const reference of references) {
+        if (reference.includes("docker://")) {
+          expect(reference).toMatch(/@sha256:[a-f\d]{64}$/u);
+        } else {
+          expect(reference).toMatch(/@[a-f\d]{40} # v\d+\.\d+\.\d+$/u);
+        }
+      }
+
+      expect(workflow.content).not.toContain("\\${{");
+    }
   });
 });

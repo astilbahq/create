@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 .pnpm-store/
+.generated-audit/
 coverage/
 dist/
 node_modules/

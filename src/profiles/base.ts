@@ -1,5 +1,8 @@
 import type { Profile } from "../generator/types.js";
+import { dependencyVersions } from "./dependency-versions.js";
+import { githubFiles } from "./github-files.js";
 import { file } from "./shared.js";
+import { toolchainVersions } from "./toolchain-versions.js";
 
 const MIT_LICENSE = `
 MIT License
@@ -27,6 +30,24 @@ SOFTWARE.
 
 export const baseProfile: Profile = {
   files: [
+    ...githubFiles,
+    file(
+      ".editorconfig",
+      `
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_size = 2
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false
+`
+    ),
     file(
       ".gitattributes",
       `
@@ -54,11 +75,37 @@ node_modules/
 worker-configuration.d.ts
 `
     ),
-    file(".node-version", "24.18.0\n"),
+    file(".node-version", `${toolchainVersions.node}\n`),
     file(
       ".npmrc",
       `
 save-exact=true
+`
+    ),
+    file(
+      "AGENTS.md",
+      `
+# Agent instructions
+
+Repository instructions live in [\`CLAUDE.md\`](./CLAUDE.md). Keep one authority rather than duplicating operational guidance.
+`
+    ),
+    file(
+      "CLAUDE.md",
+      `
+# {{foundation:projectName}}
+
+{{foundation:description}}
+
+## Ground rules
+
+1. Run \`pnpm verify\` before proposing a commit.
+2. Add or update tests for observable behaviour.
+3. Keep dependencies and GitHub Actions exactly pinned. Update the lockfile with dependency changes.
+4. Do not weaken type, lint, test, packaging, or security gates to make a change pass.
+5. Never commit credentials, local environment files, deployment identifiers, or private URLs.
+6. Keep changes focused and preserve unrelated work in a dirty worktree.
+7. Prefer deterministic behaviour and explicit inputs over ambient time, randomness, or machine state.
 `
     ),
     file("LICENSE", MIT_LICENSE),
@@ -75,6 +122,8 @@ save-exact=true
 pnpm install
 pnpm verify
 \`\`\`
+
+After the first push, complete the [repository-settings checklist](docs/repository-settings.md).
 `
     ),
     file(
@@ -118,22 +167,22 @@ minimumReleaseAge: 4320
   name: "base",
   packageJson: {
     devDependencies: {
-      knip: "6.26.0",
-      oxfmt: "0.59.0",
-      oxlint: "1.74.0",
-      typescript: "6.0.3",
-      ultracite: "7.9.4",
-      vitest: "4.1.10",
+      knip: dependencyVersions.knip,
+      oxfmt: dependencyVersions.oxfmt,
+      oxlint: dependencyVersions.oxlint,
+      typescript: dependencyVersions.typescript,
+      ultracite: dependencyVersions.ultracite,
+      vitest: dependencyVersions.vitest,
     },
     fields: {
       description: "{{foundation:description}}",
       engines: {
-        node: ">=22.18.0",
-        pnpm: ">=11.10.0",
+        node: toolchainVersions.nodeEngine,
+        pnpm: `>=${toolchainVersions.pnpm}`,
       },
       license: "MIT",
       name: "{{foundation:packageName}}",
-      packageManager: "pnpm@11.10.0",
+      packageManager: `pnpm@${toolchainVersions.pnpm}`,
       type: "module",
       version: "0.0.0",
     },

@@ -1,4 +1,5 @@
 import type { Profile } from "../generator/types.js";
+import { dependencyVersions } from "./dependency-versions.js";
 import { file, projectProfileConflicts } from "./shared.js";
 
 const WORKER_NAME_PATTERN = /^[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?$/u;
@@ -157,9 +158,10 @@ export default defineConfig({
   name: "workers",
   packageJson: {
     devDependencies: {
-      "@cloudflare/vitest-pool-workers": "0.18.3",
-      "@types/node": "24.13.3",
-      wrangler: "4.109.0",
+      "@cloudflare/vitest-pool-workers":
+        dependencyVersions["@cloudflare/vitest-pool-workers"],
+      "@types/node": dependencyVersions["@types/node"],
+      wrangler: dependencyVersions.wrangler,
     },
     fields: {
       private: true,

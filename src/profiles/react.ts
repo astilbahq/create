@@ -1,4 +1,5 @@
 import type { Profile } from "../generator/types.js";
+import { dependencyVersions } from "./dependency-versions.js";
 import { file, projectProfileConflicts } from "./shared.js";
 
 export const reactProfile: Profile = {
@@ -140,15 +141,15 @@ export default defineConfig({
   name: "react",
   packageJson: {
     dependencies: {
-      react: "19.2.7",
-      "react-dom": "19.2.7",
+      react: dependencyVersions.react,
+      "react-dom": dependencyVersions["react-dom"],
     },
     devDependencies: {
-      "@types/node": "24.13.3",
-      "@types/react": "19.2.17",
-      "@types/react-dom": "19.2.3",
-      "@vitejs/plugin-react": "6.0.2",
-      vite: "8.1.3",
+      "@types/node": dependencyVersions["@types/node"],
+      "@types/react": dependencyVersions["@types/react"],
+      "@types/react-dom": dependencyVersions["@types/react-dom"],
+      "@vitejs/plugin-react": dependencyVersions["@vitejs/plugin-react"],
+      vite: dependencyVersions.vite,
     },
     fields: {
       private: true,

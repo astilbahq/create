@@ -1,0 +1,141 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":pinDevDependencies",
+    "group:monorepos",
+    "schedule:weekly"
+  ],
+  "timezone": "Europe/London",
+  "rangeStrategy": "pin",
+  "minimumReleaseAge": "3 days",
+  "platformAutomerge": false,
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 5am on monday"],
+    "automerge": true
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update scoped or otherwise quoted dependency pins used by generated profiles.",
+      "managerFilePatterns": ["/^src\\/profiles\\/dependency-versions\\.ts$/"],
+      "matchStrings": [
+        "\"(?<depName>@[^\"]+|[a-z][a-z\\d._-]*)\":\\s*\"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "Update unquoted dependency pins used by generated profiles.",
+      "managerFilePatterns": ["/^src\\/profiles\\/dependency-versions\\.ts$/"],
+      "matchStrings": [
+        "(?<depName>[a-z][a-z\\d-]*):\\s*\"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""
+      ],
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "Keep the generated Node.js pin current.",
+      "managerFilePatterns": ["/^src\\/profiles\\/toolchain-versions\\.ts$/"],
+      "matchStrings": ["node:\\s*\"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""],
+      "depNameTemplate": "node",
+      "datasourceTemplate": "node-version"
+    },
+    {
+      "customType": "regex",
+      "description": "Keep the current Node.js CI pin aligned with generated projects.",
+      "managerFilePatterns": ["/^\\.github\\/workflows\\/verification\\.yml$/"],
+      "matchStrings": [
+        "node:\\s*\\[\"\\d+\\.\\d+\\.\\d+\",\\s*\"(?<currentValue>\\d+\\.\\d+\\.\\d+)\"\\]"
+      ],
+      "depNameTemplate": "node",
+      "datasourceTemplate": "node-version"
+    },
+    {
+      "customType": "regex",
+      "description": "Keep the generated pnpm pin current.",
+      "managerFilePatterns": ["/^src\\/profiles\\/toolchain-versions\\.ts$/"],
+      "matchStrings": ["pnpm:\\s*\"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""],
+      "depNameTemplate": "pnpm",
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "Keep GitHub Actions embedded in generated workflows digest-pinned and current.",
+      "managerFilePatterns": ["/^src\\/profiles\\/github-files\\.ts$/"],
+      "matchStrings": [
+        "(?<depName>[a-z\\d_.-]+\\/[a-z\\d_.-]+)(?:\\/[a-z\\d_.-]+)?@(?<currentDigest>[a-f\\d]{40}) # (?<currentValue>v\\d+\\.\\d+\\.\\d+)"
+      ],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "description": "Keep the embedded Actionlint container digest-pinned and current.",
+      "managerFilePatterns": ["/^src\\/profiles\\/github-files\\.ts$/"],
+      "matchStrings": [
+        "docker:\\/\\/docker\\.io\\/(?<depName>rhysd\\/actionlint):(?<currentValue>\\d+\\.\\d+\\.\\d+)@(?<currentDigest>sha256:[a-f\\d]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "registryUrlTemplate": "https://index.docker.io"
+    },
+    {
+      "customType": "regex",
+      "description": "Keep the embedded OSV-Scanner container digest-pinned and current.",
+      "managerFilePatterns": ["/^src\\/profiles\\/github-files\\.ts$/"],
+      "matchStrings": [
+        "docker:\\/\\/ghcr\\.io\\/(?<depName>google\\/osv-scanner):(?<currentValue>v\\d+\\.\\d+\\.\\d+)@(?<currentDigest>sha256:[a-f\\d]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "registryUrlTemplate": "https://ghcr.io"
+    },
+    {
+      "customType": "regex",
+      "description": "Keep the Zizmor CLI pin current in root and generated workflows.",
+      "managerFilePatterns": [
+        "/^\\.github\\/workflows\\/(?:generated-workflows|zizmor)\\.yml$/",
+        "/^src\\/profiles\\/github-files\\.ts$/"
+      ],
+      "matchStrings": ["version: \"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""],
+      "depNameTemplate": "zizmorcore/zizmor",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.*)$",
+      "versioningTemplate": "semver"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Manage the Node and pnpm engine floors by hand.",
+      "matchDepTypes": ["engines"],
+      "enabled": false
+    },
+    {
+      "description": "Auto-merge mature non-major development tools after verification.",
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "matchCurrentVersion": "!/^0/",
+      "automerge": true
+    },
+    {
+      "description": "Require maintainer review for zero-major packages.",
+      "matchManagers": ["npm"],
+      "matchCurrentVersion": "/^0\\./",
+      "automerge": false
+    },
+    {
+      "description": "Never auto-merge major updates.",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "Require maintainer review for GitHub Actions updates.",
+      "matchManagers": ["github-actions"],
+      "automerge": false
+    }
+  ]
+}

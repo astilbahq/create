@@ -12,6 +12,7 @@
     "build": "tsc -p tsconfig.build.json",
     "check": "ultracite check",
     "fix": "ultracite fix",
+    "generate:workflow-audit-fixture": "tsx scripts/generate-workflow-audit-fixture.ts",
     "knip": "knip",
     "scaffold": "tsx src/bin.ts",
     "test": "vitest run",

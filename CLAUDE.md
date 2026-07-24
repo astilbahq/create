@@ -11,4 +11,4 @@ This repository generates new TypeScript projects from a neutral, deterministic 
 5. Never copy `.git`, credentials, deployment identifiers, private URLs, or organization-specific policy into generated projects.
 6. Keep the base profile small. Frameworks, runtimes, publishing, and deployment belong in explicit profiles.
 7. Dependencies and GitHub Actions are pinned exactly. Re-verify versions before changing them.
-8. Run `pnpm verify` before proposing a commit.
+8. Run `pnpm verify` and the affected clean-room consumer checks before proposing a commit. Run the full `pnpm test:consumers` matrix for universal changes.

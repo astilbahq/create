@@ -1,4 +1,5 @@
 import type { Profile } from "../generator/types.js";
+import { dependencyVersions } from "./dependency-versions.js";
 import { file, projectProfileConflicts } from "./shared.js";
 
 export const libraryProfile: Profile = {
@@ -94,9 +95,9 @@ export default defineConfig({
   name: "library",
   packageJson: {
     devDependencies: {
-      "@arethetypeswrong/cli": "0.18.5",
-      "@types/node": "24.13.3",
-      publint: "0.3.21",
+      "@arethetypeswrong/cli": dependencyVersions["@arethetypeswrong/cli"],
+      "@types/node": dependencyVersions["@types/node"],
+      publint: dependencyVersions.publint,
     },
     fields: {
       exports: {

@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a focused improvement
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What recurring project-setup problem or limitation should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed direction
+      description: Describe the desired generated output and any alternatives you considered.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Is this universal, profile-specific, or better left to an individual project?
+    validations:
+      required: true

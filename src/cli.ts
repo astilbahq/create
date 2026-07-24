@@ -1,149 +1,529 @@
-#!/usr/bin/env node
-
 import path from "node:path";
 import { parseArgs } from "node:util";
 
+import * as prompts from "@clack/prompts";
+
 import { applyGenerationPlan } from "./generator/apply.js";
 import { assertSafeDestinationArgument } from "./generator/paths.js";
-import { createGenerationPlan } from "./generator/plan.js";
+import type { GenerationPlan } from "./generator/types.js";
+import { installProjectDependencies } from "./install.js";
+import {
+  CREATE_ASTILBA_VERSION,
+  createProjectGenerationPlan,
+} from "./manifest.js";
 import { validateProjectOptions } from "./options.js";
 import type { ProjectOptions } from "./options.js";
-import { profileRegistry, projectProfileNames } from "./profiles/index.js";
-import type { ProjectProfileName } from "./profiles/index.js";
-
-const foundationRoot = path.resolve(import.meta.dirname, "..");
+import {
+  getProjectRecipe,
+  isProjectRecipeId,
+  projectRecipeIds,
+  recipeRegistry,
+} from "./recipes.js";
+import type { ProjectRecipeId } from "./recipes.js";
 
 const HELP = `
-Create a project from the TypeScript Foundation.
+Create a project with Astilba's TypeScript foundations.
 
 Usage:
-  pnpm scaffold <directory> --profile <profile> --description <text> --github-owner <owner>
+  npm create astilba@latest
+  npm create astilba@latest -- <directory> --recipe <recipe> [options]
 
-The directory is created beside the foundation checkout.
+Recipes:
+  typescript-library          ESM TypeScript library
+  react-vite-spa             Client-rendered React + Vite application
+  astro-static-site          Statically rendered Astro site
+  cloudflare-worker-service  Cloudflare Worker service
 
 Options:
   --description <text>    Short project description
   --github-owner <owner>  GitHub account that will own the repository
   --github-repo <name>    GitHub repository name (defaults to directory name)
   --package-name <name>   npm package name (defaults to directory name)
-  --profile <profile>     library | astro | react | workers
   --project-name <name>   Project name (defaults to directory name)
+  --recipe <recipe>       Stable recipe identifier
+  --git / --no-git        Enable or disable Git initialization
+  --install / --no-install
+                          Enable or disable dependency installation
+  --dry-run               Validate and show the plan without writing
+  --json                  Emit versioned machine-readable output
+  --yes                   Skip the final interactive confirmation
+  --version               Show the installed version
   --help                  Show this help
 `;
 
-export interface ScaffoldRequest {
-  readonly destination: string;
-  readonly options: ProjectOptions;
-  readonly profile: ProjectProfileName;
+export const CLI_OUTPUT_SCHEMA_VERSION = 1;
+
+export class CliCancelledError extends Error {
+  public constructor() {
+    super("Project creation was cancelled.");
+    this.name = "CliCancelledError";
+  }
 }
 
-const readRequiredOption = (
+interface PartialCreateInput {
+  readonly description?: string;
+  readonly destinationArgument?: string;
+  readonly dryRun: boolean;
+  readonly githubOwner?: string;
+  readonly githubRepo?: string;
+  readonly initializeGit?: boolean;
+  readonly installDependencies?: boolean;
+  readonly json: boolean;
+  readonly packageName?: string;
+  readonly projectName?: string;
+  readonly recipe?: ProjectRecipeId;
+  readonly yes: boolean;
+}
+
+type ParsedCommand =
+  | { readonly command: "create"; readonly input: PartialCreateInput }
+  | { readonly command: "help"; readonly json: boolean }
+  | { readonly command: "version"; readonly json: boolean };
+
+export interface ScaffoldRequest {
+  readonly destination: string;
+  readonly dryRun: boolean;
+  readonly initializeGit: boolean;
+  readonly installDependencies: boolean;
+  readonly json: boolean;
+  readonly options: ProjectOptions;
+  readonly recipe: ProjectRecipeId;
+}
+
+export interface ScaffoldResult {
+  readonly destination: string;
+  readonly installed: boolean;
+  readonly plan: GenerationPlan;
+  readonly recipe: ProjectRecipeId;
+}
+
+const readStringOption = (
   values: Readonly<Record<string, boolean | string | undefined>>,
   name: string
-): string => {
+): string | undefined => {
   const value = values[name];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+};
 
-  if (typeof value !== "string" || value.length === 0) {
-    throw new Error(`Missing required option --${name}.`);
+const CLI_OPTIONS = {
+  description: { type: "string" },
+  "dry-run": { type: "boolean" },
+  git: { type: "boolean" },
+  "github-owner": { type: "string" },
+  "github-repo": { type: "string" },
+  help: { short: "h", type: "boolean" },
+  install: { type: "boolean" },
+  json: { type: "boolean" },
+  "package-name": { type: "string" },
+  "project-name": { type: "string" },
+  recipe: { short: "r", type: "string" },
+  version: { short: "v", type: "boolean" },
+  yes: { short: "y", type: "boolean" },
+} as const;
+
+export const isJsonOutputRequested = (
+  arguments_: readonly string[]
+): boolean => {
+  const { values } = parseArgs({
+    allowNegative: true,
+    allowPositionals: true,
+    args: [...arguments_],
+    options: CLI_OPTIONS,
+    strict: false,
+  });
+
+  return values.json === true;
+};
+
+export const parseCliArguments = (
+  arguments_: readonly string[]
+): ParsedCommand => {
+  const { positionals, values } = parseArgs({
+    allowNegative: true,
+    allowPositionals: true,
+    args: [...arguments_],
+    options: CLI_OPTIONS,
+    strict: true,
+  });
+  const json = values.json === true;
+
+  if (values.help === true) {
+    return { command: "help", json };
+  }
+
+  if (values.version === true) {
+    return { command: "version", json };
+  }
+
+  if (positionals.length > 1) {
+    throw new Error("Provide at most one destination directory.");
+  }
+
+  const recipeValue = readStringOption(values, "recipe");
+  let recipe: ProjectRecipeId | undefined;
+
+  if (recipeValue !== undefined) {
+    if (!isProjectRecipeId(recipeValue)) {
+      throw new Error(
+        `Unknown project recipe "${recipeValue}". Choose one of: ${projectRecipeIds.join(", ")}.`
+      );
+    }
+
+    recipe = recipeValue;
+  }
+
+  const description = readStringOption(values, "description");
+  const [destinationArgument] = positionals;
+  const githubOwner = readStringOption(values, "github-owner");
+  const githubRepo = readStringOption(values, "github-repo");
+  const packageName = readStringOption(values, "package-name");
+  const projectName = readStringOption(values, "project-name");
+  const initializeGit =
+    typeof values.git === "boolean" ? values.git : undefined;
+  const installDependencies =
+    typeof values.install === "boolean" ? values.install : undefined;
+
+  return {
+    command: "create",
+    input: {
+      dryRun: values["dry-run"] === true,
+      json: values.json === true,
+      yes: values.yes === true,
+      ...(description === undefined ? {} : { description }),
+      ...(destinationArgument === undefined ? {} : { destinationArgument }),
+      ...(githubOwner === undefined ? {} : { githubOwner }),
+      ...(githubRepo === undefined ? {} : { githubRepo }),
+      ...(initializeGit === undefined ? {} : { initializeGit }),
+      ...(installDependencies === undefined ? {} : { installDependencies }),
+      ...(packageName === undefined ? {} : { packageName }),
+      ...(projectName === undefined ? {} : { projectName }),
+      ...(recipe === undefined ? {} : { recipe }),
+    },
+  };
+};
+
+const requirePromptValue = <Value>(value: Value | symbol): Value => {
+  if (prompts.isCancel(value)) {
+    prompts.cancel("Project creation cancelled.");
+    throw new CliCancelledError();
   }
 
   return value;
 };
 
-const isProjectProfile = (value: string): value is ProjectProfileName =>
-  projectProfileNames.some((name) => name === value);
+const requirePromptString = (value: string | symbol | undefined): string => {
+  const resolved = requirePromptValue(value);
 
-export const parseScaffoldArguments = (
-  arguments_: readonly string[],
-  outputRoot = path.dirname(foundationRoot)
-): ScaffoldRequest | "help" => {
-  const { positionals, values } = parseArgs({
-    allowPositionals: true,
-    args: [...arguments_],
-    options: {
-      description: { type: "string" },
-      "github-owner": { type: "string" },
-      "github-repo": { type: "string" },
-      help: { short: "h", type: "boolean" },
-      "package-name": { type: "string" },
-      profile: { short: "p", type: "string" },
-      "project-name": { type: "string" },
-    },
-    strict: true,
-  });
-
-  if (values.help === true) {
-    return "help";
+  if (typeof resolved !== "string") {
+    throw new TypeError("The prompt did not return a text value.");
   }
 
-  if (positionals.length !== 1) {
-    throw new Error("Provide exactly one destination directory.");
-  }
+  return resolved;
+};
 
-  const destinationArgument = positionals[0] ?? "";
-  assertSafeDestinationArgument(destinationArgument);
+const inferProjectName = (destinationArgument: string): string => {
+  const inferredName = path
+    .basename(destinationArgument)
+    .toLowerCase()
+    .replaceAll(/[^a-z\d]+/gu, "-")
+    .replaceAll(/^-+|-+$/gu, "")
+    .slice(0, 63)
+    .replace(/-+$/u, "");
 
-  const destination = path.resolve(outputRoot, destinationArgument);
-  const inferredName = path.basename(destination);
-  const profile = readRequiredOption(values, "profile");
-
-  if (!isProjectProfile(profile)) {
+  if (inferredName.length === 0) {
     throw new Error(
-      `Unknown project profile "${profile}". Choose one of: ${projectProfileNames.join(", ")}.`
+      "The destination name must include at least one letter or digit so project metadata can be inferred."
     );
   }
 
+  return inferredName;
+};
+
+const collectInteractiveInput = async (
+  input: PartialCreateInput
+): Promise<PartialCreateInput> => {
+  prompts.intro("Astilba Create");
+
+  const destinationArgument =
+    input.destinationArgument ??
+    requirePromptString(
+      await prompts.text({
+        defaultValue: "my-project",
+        message: "Where should we create your project?",
+        placeholder: "my-project",
+        validate: (value) => {
+          try {
+            assertSafeDestinationArgument(value ?? "");
+            inferProjectName(value ?? "");
+          } catch (error: unknown) {
+            return error instanceof Error ? error.message : String(error);
+          }
+        },
+      })
+    );
+  assertSafeDestinationArgument(destinationArgument);
+  const inferredName = inferProjectName(destinationArgument);
+  const recipe =
+    input.recipe ??
+    requirePromptValue(
+      await prompts.select<ProjectRecipeId>({
+        message: "Choose a starting point",
+        options: projectRecipeIds.map((recipeId) => {
+          const candidate = getProjectRecipe(recipeId);
+          return {
+            hint: candidate.description,
+            label: candidate.label,
+            value: candidate.id,
+          };
+        }),
+      })
+    );
+  const description =
+    input.description ??
+    requirePromptString(
+      await prompts.text({
+        message: "Project description",
+        placeholder: "A useful TypeScript project.",
+        validate: (value) =>
+          (value ?? "").trim().length === 0
+            ? "Enter a project description."
+            : undefined,
+      })
+    );
+  const packageName =
+    input.packageName ??
+    requirePromptString(
+      await prompts.text({
+        defaultValue: inferredName,
+        message: "npm package name",
+        placeholder: inferredName,
+      })
+    );
+  const githubOwner =
+    input.githubOwner ??
+    requirePromptString(
+      await prompts.text({
+        message: "GitHub owner",
+        placeholder: "your-account",
+        validate: (value) =>
+          (value ?? "").trim().length === 0
+            ? "Enter a GitHub account."
+            : undefined,
+      })
+    );
+  const initializeGit =
+    input.initializeGit ??
+    requirePromptValue(
+      await prompts.confirm({
+        initialValue: true,
+        message: "Initialize a Git repository?",
+      })
+    );
+  const installDependencies =
+    input.installDependencies ??
+    requirePromptValue(
+      await prompts.confirm({
+        initialValue: true,
+        message: "Install dependencies?",
+      })
+    );
+
+  if (!input.yes) {
+    const confirmed = requirePromptValue(
+      await prompts.confirm({
+        initialValue: true,
+        message: `Create ${inferredName} from ${getProjectRecipe(recipe).label}?`,
+      })
+    );
+
+    if (!confirmed) {
+      prompts.cancel("Project creation cancelled.");
+      throw new CliCancelledError();
+    }
+  }
+
+  return {
+    ...input,
+    description,
+    destinationArgument,
+    githubOwner,
+    initializeGit,
+    installDependencies,
+    packageName,
+    recipe,
+  };
+};
+
+const hasRequiredInput = (
+  input: PartialCreateInput
+): input is PartialCreateInput & {
+  readonly description: string;
+  readonly destinationArgument: string;
+  readonly githubOwner: string;
+  readonly recipe: ProjectRecipeId;
+} =>
+  input.description !== undefined &&
+  input.destinationArgument !== undefined &&
+  input.githubOwner !== undefined &&
+  input.recipe !== undefined;
+
+export const resolveScaffoldRequest = async (
+  input: PartialCreateInput,
+  {
+    cwd = process.cwd(),
+    interactive = process.stdin.isTTY === true && process.stdout.isTTY === true,
+  }: { readonly cwd?: string; readonly interactive?: boolean } = {}
+): Promise<ScaffoldRequest> => {
+  let resolvedInput: PartialCreateInput | undefined = input;
+
+  if (!hasRequiredInput(input)) {
+    resolvedInput =
+      input.json || !interactive
+        ? undefined
+        : await collectInteractiveInput(input);
+  }
+
+  if (!resolvedInput || !hasRequiredInput(resolvedInput)) {
+    throw new Error(
+      "Non-interactive creation requires a destination, --recipe, --description, and --github-owner."
+    );
+  }
+
+  assertSafeDestinationArgument(resolvedInput.destinationArgument);
+  const destination = path.resolve(cwd, resolvedInput.destinationArgument);
+  const inferredName = inferProjectName(resolvedInput.destinationArgument);
   const options = validateProjectOptions({
-    description: readRequiredOption(values, "description"),
-    githubOwner: readRequiredOption(values, "github-owner"),
-    githubRepo:
-      typeof values["github-repo"] === "string"
-        ? values["github-repo"]
-        : inferredName,
-    packageName:
-      typeof values["package-name"] === "string"
-        ? values["package-name"]
-        : inferredName,
-    projectName:
-      typeof values["project-name"] === "string"
-        ? values["project-name"]
-        : inferredName,
+    description: resolvedInput.description,
+    githubOwner: resolvedInput.githubOwner,
+    githubRepo: resolvedInput.githubRepo ?? inferredName,
+    packageName: resolvedInput.packageName ?? inferredName,
+    projectName: resolvedInput.projectName ?? inferredName,
   });
 
   return {
     destination,
+    dryRun: resolvedInput.dryRun,
+    initializeGit: resolvedInput.initializeGit ?? true,
+    installDependencies: resolvedInput.installDependencies ?? false,
+    json: resolvedInput.json,
     options,
-    profile,
+    recipe: resolvedInput.recipe,
   };
 };
 
 export const scaffoldProject = async (
   request: ScaffoldRequest,
   forbiddenRoots: readonly string[] = []
-): Promise<void> => {
-  const plan = createGenerationPlan(
-    [request.profile],
-    profileRegistry,
-    request.options
+): Promise<ScaffoldResult> => {
+  const plan = createProjectGenerationPlan(request.recipe, request.options);
+
+  if (!request.dryRun) {
+    await applyGenerationPlan(plan, request.destination, {
+      forbiddenRoots,
+      initializeGit: request.initializeGit,
+    });
+  }
+
+  if (request.installDependencies && !request.dryRun) {
+    await installProjectDependencies(request.destination);
+  }
+
+  return {
+    destination: request.destination,
+    installed: request.installDependencies && !request.dryRun,
+    plan,
+    recipe: request.recipe,
+  };
+};
+
+const writeJsonResult = (result: ScaffoldResult, dryRun: boolean): void => {
+  process.stdout.write(
+    `${JSON.stringify({
+      action: dryRun ? "plan" : "create",
+      destination: result.destination,
+      files: result.plan.files.map((file) => file.path),
+      installed: result.installed,
+      ok: true,
+      recipe: result.recipe,
+      schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
+      symlinks: (result.plan.symlinks ?? []).map((symlink) => symlink.path),
+    })}\n`
   );
-  await applyGenerationPlan(plan, request.destination, {
-    forbiddenRoots: [foundationRoot, ...forbiddenRoots],
-    initializeGit: true,
-  });
 };
 
 export const runCli = async (
   arguments_: readonly string[] = process.argv.slice(2)
 ): Promise<void> => {
-  const request = parseScaffoldArguments(arguments_);
+  const parsed = parseCliArguments(arguments_);
 
-  if (request === "help") {
-    process.stdout.write(HELP);
+  if (parsed.command === "help") {
+    process.stdout.write(
+      parsed.json
+        ? `${JSON.stringify({
+            command: "help",
+            ok: true,
+            schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
+            usage: HELP.trim(),
+          })}\n`
+        : HELP
+    );
     return;
   }
 
-  await scaffoldProject(request, [foundationRoot]);
-  process.stdout.write(
-    `Created ${request.profile} project at ${request.destination}\n`
-  );
+  if (parsed.command === "version") {
+    process.stdout.write(
+      parsed.json
+        ? `${JSON.stringify({
+            command: "version",
+            ok: true,
+            schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
+            version: CREATE_ASTILBA_VERSION,
+          })}\n`
+        : `${CREATE_ASTILBA_VERSION}\n`
+    );
+    return;
+  }
+
+  const request = await resolveScaffoldRequest(parsed.input);
+  const spinner =
+    request.json || process.stdout.isTTY !== true
+      ? undefined
+      : prompts.spinner();
+  let progressMessage = "Creating project";
+  let completionMessage = "Project created";
+
+  if (request.dryRun) {
+    progressMessage = "Planning project";
+    completionMessage = "Project plan ready";
+  } else if (request.installDependencies) {
+    progressMessage = "Creating project and installing dependencies";
+    completionMessage = "Project created and dependencies installed";
+  }
+
+  spinner?.start(progressMessage);
+
+  let result: ScaffoldResult;
+
+  try {
+    result = await scaffoldProject(request);
+    spinner?.stop(completionMessage);
+  } catch (error: unknown) {
+    spinner?.stop("Project creation needs attention");
+    throw error;
+  }
+
+  if (request.json) {
+    writeJsonResult(result, request.dryRun);
+    return;
+  }
+
+  const recipe = recipeRegistry.get(result.recipe);
+  const verb = request.dryRun ? "Planned" : "Created";
+  const summary = `${verb} ${recipe?.label ?? result.recipe} at ${result.destination}`;
+
+  if (process.stdout.isTTY === true) {
+    prompts.outro(summary);
+  } else {
+    process.stdout.write(`${summary}\n`);
+  }
 };

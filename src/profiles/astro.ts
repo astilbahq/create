@@ -1,6 +1,6 @@
 import type { Profile } from "../generator/types.js";
 import { dependencyVersions } from "./dependency-versions.js";
-import { file, projectProfileConflicts } from "./shared.js";
+import { file, projectProfileConflicts, seededFile } from "./shared.js";
 
 export const astroProfile: Profile = {
   conflicts: projectProfileConflicts("astro"),
@@ -23,7 +23,7 @@ export default defineConfig({});
 }
 `
     ),
-    file(
+    seededFile(
       "src/pages/index.astro",
       `
 ---
@@ -48,7 +48,7 @@ const description = {{foundation:descriptionJson}};
 </html>
 `
     ),
-    file(
+    seededFile(
       "tests/smoke.test.ts",
       `
 import { describe, expect, it } from "vitest";

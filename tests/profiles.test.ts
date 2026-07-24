@@ -28,7 +28,7 @@ const temporaryRoots: string[] = [];
 
 const createTemporaryRoot = async (): Promise<string> => {
   const root = await mkdtemp(
-    path.join(await realpath(tmpdir()), "typescript-foundation-profiles-")
+    path.join(await realpath(tmpdir()), "create-astilba-profiles-")
   );
   temporaryRoots.push(root);
   return root;
@@ -89,7 +89,7 @@ describe("project profiles", () => {
         "`CLAUDE.md` is a symbolic link"
       );
       expect([...contents.values()].join("\n")).not.toContain(
-        "ReesMorris/typescript-foundation"
+        "astilbahq/create"
       );
     }
   );

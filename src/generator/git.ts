@@ -46,7 +46,7 @@ export const initializeGitRepository = async (
   ambientEnvironment: NodeJS.ProcessEnv = process.env
 ): Promise<void> => {
   const templateDirectory = await mkdtemp(
-    path.join(path.dirname(root), ".typescript-foundation-git-template-")
+    path.join(path.dirname(root), ".astilba-create-git-template-")
   );
 
   try {

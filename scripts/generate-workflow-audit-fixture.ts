@@ -1,12 +1,11 @@
 import path from "node:path";
 
 import { applyGenerationPlan } from "../src/generator/apply.js";
-import { createGenerationPlan } from "../src/generator/plan.js";
-import { profileRegistry } from "../src/profiles/index.js";
+import { createProjectGenerationPlan } from "../src/manifest.js";
 
 const foundationRoot = path.resolve(import.meta.dirname, "..");
 const destination = path.join(foundationRoot, ".generated-audit");
-const plan = createGenerationPlan(["library"], profileRegistry, {
+const plan = createProjectGenerationPlan("typescript-library", {
   description: "Generated workflow audit fixture.",
   githubOwner: "example",
   githubRepo: "generated-audit",

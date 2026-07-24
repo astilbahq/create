@@ -1,7 +1,7 @@
 import type { Profile } from "../generator/types.js";
 import { dependencyVersions } from "./dependency-versions.js";
 import { githubFiles } from "./github-files.js";
-import { file, link } from "./shared.js";
+import { file, link, seededFile } from "./shared.js";
 import { toolchainVersions } from "./toolchain-versions.js";
 
 const MIT_LICENSE = `
@@ -100,8 +100,8 @@ save-exact=true
 7. Prefer deterministic behaviour and explicit inputs over ambient time, randomness, or machine state.
 `
     ),
-    file("LICENSE", MIT_LICENSE),
-    file(
+    seededFile("LICENSE", MIT_LICENSE),
+    seededFile(
       "README.md",
       `
 # {{foundation:projectName}}

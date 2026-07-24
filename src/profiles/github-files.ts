@@ -1,5 +1,5 @@
 import type { TextFileDeclaration } from "../generator/types.js";
-import { file } from "./shared.js";
+import { file, seededFile } from "./shared.js";
 import { toolchainVersions } from "./toolchain-versions.js";
 
 const CHECKOUT_ACTION =
@@ -368,7 +368,7 @@ jobs:
           version: "1.26.1"
 `
   ),
-  file(
+  seededFile(
     "CONTRIBUTING.md",
     `
 # Contributing

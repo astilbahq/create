@@ -1,3 +1,4 @@
+import { createProfileRegistry } from "../generator/plan.js";
 import type { Profile } from "../generator/types.js";
 import { astroProfile } from "./astro.js";
 import { baseProfile } from "./base.js";
@@ -15,6 +16,4 @@ const profiles: readonly Profile[] = [
   workersProfile,
 ];
 
-export const profileRegistry: ReadonlyMap<string, Profile> = new Map(
-  profiles.map((profile) => [profile.name, profile])
-);
+export const profileRegistry = createProfileRegistry(profiles);

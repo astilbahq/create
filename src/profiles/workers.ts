@@ -1,6 +1,6 @@
 import type { Profile } from "../generator/types.js";
 import { dependencyVersions } from "./dependency-versions.js";
-import { file, projectProfileConflicts } from "./shared.js";
+import { file, projectProfileConflicts, seededFile } from "./shared.js";
 
 const WORKER_NAME_PATTERN = /^[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?$/u;
 
@@ -18,7 +18,7 @@ export const workersProfile: Profile = {
 }
 `
     ),
-    file(
+    seededFile(
       "src/index.ts",
       `
 export default {
@@ -33,7 +33,7 @@ export default {
 } satisfies ExportedHandler<CloudflareBindings>;
 `
     ),
-    file(
+    seededFile(
       "tests/index.test.ts",
       `
 import { exports } from "cloudflare:workers";

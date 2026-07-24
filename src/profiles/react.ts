@@ -1,11 +1,11 @@
 import type { Profile } from "../generator/types.js";
 import { dependencyVersions } from "./dependency-versions.js";
-import { file, projectProfileConflicts } from "./shared.js";
+import { file, projectProfileConflicts, seededFile } from "./shared.js";
 
 export const reactProfile: Profile = {
   conflicts: projectProfileConflicts("react"),
   files: [
-    file(
+    seededFile(
       "index.html",
       `
 <!doctype html>
@@ -32,7 +32,7 @@ export const reactProfile: Profile = {
 }
 `
     ),
-    file(
+    seededFile(
       "src/app.tsx",
       `
 import project from "./project.json";
@@ -45,7 +45,7 @@ export const App = () => (
 );
 `
     ),
-    file(
+    seededFile(
       "src/project.json",
       `
 {
@@ -53,7 +53,7 @@ export const App = () => (
 }
 `
     ),
-    file(
+    seededFile(
       "src/main.tsx",
       `
 import { StrictMode } from "react";
@@ -74,7 +74,7 @@ createRoot(root).render(
 );
 `
     ),
-    file(
+    seededFile(
       "tests/project.test.ts",
       `
 import { describe, expect, it } from "vitest";

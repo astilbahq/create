@@ -229,9 +229,9 @@ const interruptionError = (
       cause: reason,
       code: "CANCELLED",
       destination,
+      destinationState: "complete",
       exitCode: 130,
       phase: "installation",
-      projectCreated: true,
     }
   );
 
@@ -290,9 +290,9 @@ const resolvePackageManager = async (
         cause: error,
         code: "PACKAGE_MANAGER_UNAVAILABLE",
         destination,
+        destinationState: "complete",
         diagnostics: corepackDiagnostics || pnpmDiagnostics,
         phase: "installation",
-        projectCreated: true,
       }
     );
   }
@@ -306,8 +306,8 @@ const resolvePackageManager = async (
     {
       code: "PACKAGE_MANAGER_UNAVAILABLE",
       destination,
+      destinationState: "complete",
       phase: "installation",
-      projectCreated: true,
     }
   );
 };
@@ -352,9 +352,9 @@ export const installProjectDependencies = async (
         cause: error,
         code: "INSTALLATION_FAILED",
         destination,
+        destinationState: "complete",
         diagnostics: diagnosticsFrom(error),
         phase: "installation",
-        projectCreated: true,
       }
     );
   }

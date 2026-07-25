@@ -13,7 +13,7 @@ import { PassThrough } from "node:stream";
 import type { Writable } from "node:stream";
 import { setImmediate as waitForImmediate } from "node:timers/promises";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   isJsonOutputRequested,
@@ -23,6 +23,7 @@ import {
   scaffoldProject,
 } from "../src/cli.js";
 import type { CreateAstilbaError } from "../src/errors.js";
+import { ApplyGenerationError } from "../src/generator/apply.js";
 import { PROJECT_MANIFEST_PATH } from "../src/manifest.js";
 import { CliPromptCancelledError } from "../src/terminal.js";
 import type { CliPromptId, CliTerminal } from "../src/terminal.js";
@@ -137,6 +138,9 @@ const createRecordingTerminal = (
         return Promise.resolve(answer);
       },
       spinner: () => ({
+        message: (message) => {
+          events.push(`spinner:message:${message}`);
+        },
         start: (message) => {
           events.push(`spinner:start:${message}`);
         },
@@ -565,6 +569,29 @@ describe("Astilba Create CLI", () => {
     expect(output.read()).toBe("");
   });
 
+  it("reports planning and generation as distinct progress phases", async () => {
+    const root = await mkdtemp(
+      path.join(await realpath(tmpdir()), "create-astilba-progress-")
+    );
+    temporaryRoots.push(root);
+    const recording = createRecordingTerminal();
+
+    await runCli([...completeArguments, "--no-git"], {
+      cwd: root,
+      interactive: true,
+      terminal: recording.terminal,
+    });
+
+    expect(recording.events).toEqual([
+      "spinner:start:Planning project",
+      "spinner:message:Generating project",
+      "spinner:stop:Project created",
+      expect.stringMatching(
+        /^outro:Created TypeScript library at [^\n]+ Dependencies were not installed\.\nNext: open [^\n]+, run pnpm install --frozen-lockfile, then run pnpm verify\.$/u
+      ),
+    ]);
+  });
+
   it("propagates cancellation into an injected pending prompt", async () => {
     const controller = new AbortController();
     const output = createTextOutput();
@@ -616,6 +643,7 @@ describe("Astilba Create CLI", () => {
     const terminal: CliTerminal = {
       ...recording.terminal,
       spinner: () => ({
+        message: () => {},
         start: () => {},
         stop: () => {
           throw new Error("rendering failed");
@@ -881,10 +909,160 @@ describe("Astilba Create CLI", () => {
     });
 
     expect(result.installed).toBe(false);
+    expect(result.destinationState).toBe("unchanged");
     expect(result.plan.files.map((file) => file.path)).toContain(
       PROJECT_MANIFEST_PATH
     );
     await expect(lstat(destination)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("reports every scaffold phase and its final destination state", async () => {
+    const phases: string[] = [];
+    const applyPlan = vi.fn(() => Promise.resolve());
+    const installDependencies = vi.fn(() => Promise.resolve());
+
+    const result = await scaffoldProject(
+      {
+        destination: "/unused/project",
+        dryRun: false,
+        initializeGit: false,
+        installDependencies: true,
+        json: false,
+        options: {
+          description: "An example application.",
+          githubOwner: "example",
+          githubRepo: "project",
+          packageName: "@example/project",
+          projectName: "project",
+        },
+        recipe: "react-vite-spa",
+      },
+      [],
+      undefined,
+      {
+        applyPlan,
+        installDependencies,
+        onPhase: (phase) => {
+          phases.push(phase);
+        },
+      }
+    );
+
+    expect(phases).toEqual(["planning", "generation", "installation"]);
+    expect(applyPlan).toHaveBeenCalledOnce();
+    expect(installDependencies).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      destinationState: "complete",
+      installed: true,
+    });
+  });
+
+  it("preserves an incomplete publication state in generation errors", async () => {
+    const failure = new ApplyGenerationError(
+      "The incomplete marker was preserved.",
+      "incomplete"
+    );
+
+    await expect(
+      scaffoldProject(
+        {
+          destination: "/unused/project",
+          dryRun: false,
+          initializeGit: false,
+          installDependencies: false,
+          json: false,
+          options: {
+            description: "An example application.",
+            githubOwner: "example",
+            githubRepo: "project",
+            packageName: "@example/project",
+            projectName: "project",
+          },
+          recipe: "react-vite-spa",
+        },
+        [],
+        undefined,
+        {
+          applyPlan: () => Promise.reject(failure),
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "GENERATION_FAILED",
+      destinationState: "incomplete",
+      phase: "generation",
+      projectCreated: false,
+    } satisfies Partial<CreateAstilbaError>);
+  });
+
+  it("reports a complete destination when cancellation lands after publication", async () => {
+    const controller = new AbortController();
+
+    await expect(
+      scaffoldProject(
+        {
+          destination: "/unused/project",
+          dryRun: false,
+          initializeGit: false,
+          installDependencies: false,
+          json: false,
+          options: {
+            description: "An example application.",
+            githubOwner: "example",
+            githubRepo: "project",
+            packageName: "@example/project",
+            projectName: "project",
+          },
+          recipe: "react-vite-spa",
+        },
+        [],
+        controller.signal,
+        {
+          applyPlan: () => {
+            controller.abort(new Error("test cancellation"));
+            return Promise.resolve();
+          },
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "CANCELLED",
+      destinationState: "complete",
+      phase: "generation",
+      projectCreated: true,
+    } satisfies Partial<CreateAstilbaError>);
+  });
+
+  it("normalizes unexpected installer failures after publication", async () => {
+    await expect(
+      scaffoldProject(
+        {
+          destination: "/unused/project",
+          dryRun: false,
+          initializeGit: false,
+          installDependencies: true,
+          json: false,
+          options: {
+            description: "An example application.",
+            githubOwner: "example",
+            githubRepo: "project",
+            packageName: "@example/project",
+            projectName: "project",
+          },
+          recipe: "react-vite-spa",
+        },
+        [],
+        undefined,
+        {
+          applyPlan: () => Promise.resolve(),
+          installDependencies: () =>
+            Promise.reject(new Error("injected installer failure")),
+        }
+      )
+    ).rejects.toMatchObject({
+      code: "INSTALLATION_FAILED",
+      destinationState: "complete",
+      phase: "installation",
+      projectCreated: true,
+    } satisfies Partial<CreateAstilbaError>);
   });
 
   it("reports cancellation before generation with stable diagnostics", async () => {

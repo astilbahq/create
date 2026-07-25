@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
+import type { DestinationState } from "../errors.js";
 import { initializeGitRepository } from "./git.js";
 import {
   assertSafeDestinationPath,
@@ -25,7 +26,27 @@ import type { GenerationPlan } from "./types.js";
 export interface ApplyPlanOptions {
   readonly forbiddenRoots?: readonly string[];
   readonly initializeGit?: boolean;
+  readonly publicationOperations?: Partial<ApplyPlanPublicationOperations>;
   readonly signal?: AbortSignal;
+}
+
+export interface ApplyPlanPublicationOperations {
+  readonly remove: typeof rm;
+  readonly rename: typeof rename;
+}
+
+export class ApplyGenerationError extends Error {
+  public readonly destinationState: Exclude<DestinationState, "complete">;
+
+  public constructor(
+    message: string,
+    destinationState: Exclude<DestinationState, "complete">,
+    options: { readonly cause?: unknown } = {}
+  ) {
+    super(message, options);
+    this.name = "ApplyGenerationError";
+    this.destinationState = destinationState;
+  }
 }
 
 const pathExists = async (candidate: string): Promise<boolean> => {
@@ -185,7 +206,8 @@ const applyFileModes = async (
 
 const publishStagingTree = async (
   staging: string,
-  destination: string
+  destination: string,
+  operations: ApplyPlanPublicationOperations
 ): Promise<void> => {
   await mkdir(destination, { mode: 0o755 });
   const incompleteMarker = path.join(destination, INCOMPLETE_MARKER_PATH);
@@ -206,57 +228,81 @@ const publishStagingTree = async (
     throw error;
   }
 
-  const stagingNames = await readdir(staging);
-  const names = stagingNames.toSorted();
-  const moves = await Promise.allSettled(
-    names.map(async (name) => {
-      await rename(path.join(staging, name), path.join(destination, name));
-      return name;
-    })
-  );
-  const movedNames = moves.flatMap((result) =>
-    result.status === "fulfilled" ? [result.value] : []
-  );
-  const failedMoveCount = moves.filter(
-    (result) => result.status === "rejected"
-  ).length;
-
-  if (failedMoveCount > 0) {
-    const rollbacks = await Promise.allSettled(
-      movedNames.map((name) =>
-        rename(path.join(destination, name), path.join(staging, name))
-      )
+  try {
+    const stagingNames = await readdir(staging);
+    const names = stagingNames.toSorted();
+    const moves = await Promise.allSettled(
+      names.map(async (name) => {
+        await operations.rename(
+          path.join(staging, name),
+          path.join(destination, name)
+        );
+        return name;
+      })
     );
-    const failedRollbackCount = rollbacks.filter(
+    const movedNames = moves.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : []
+    );
+    const failedMoveCount = moves.filter(
       (result) => result.status === "rejected"
     ).length;
 
-    if (failedRollbackCount === 0) {
-      await rm(incompleteMarker, { force: true });
+    if (failedMoveCount > 0) {
+      const rollbacks = await Promise.allSettled(
+        movedNames.map((name) =>
+          operations.rename(
+            path.join(destination, name),
+            path.join(staging, name)
+          )
+        )
+      );
+      const failedRollbackCount = rollbacks.filter(
+        (result) => result.status === "rejected"
+      ).length;
 
-      try {
-        await rmdir(destination);
-      } catch {
-        // Preserve an externally modified destination rather than deleting data
-        // that the generator does not own.
+      if (failedRollbackCount === 0) {
+        await operations.remove(incompleteMarker, { force: true });
+
+        try {
+          await rmdir(destination);
+        } catch {
+          // Preserve an externally modified destination rather than deleting data
+          // that the generator does not own.
+        }
+
+        throw new ApplyGenerationError(
+          "Could not publish the complete generated tree.",
+          "unchanged"
+        );
       }
 
-      throw new Error("Could not publish the complete generated tree.");
+      throw new ApplyGenerationError(
+        `Could not publish the complete generated tree, and ${failedRollbackCount} rollback operation(s) failed. The incomplete marker was preserved.`,
+        "incomplete"
+      );
     }
 
-    throw new Error(
-      `Could not publish the complete generated tree, and ${failedRollbackCount} rollback operation(s) failed. The incomplete marker was preserved.`
+    await operations.remove(incompleteMarker);
+  } catch (error: unknown) {
+    if (error instanceof ApplyGenerationError) {
+      throw error;
+    }
+
+    throw new ApplyGenerationError(
+      error instanceof Error
+        ? error.message
+        : "Could not publish the complete generated tree.",
+      "incomplete",
+      { cause: error }
     );
   }
 
-  await rm(incompleteMarker);
-
-  try {
-    await rm(staging, { force: true, recursive: true });
-  } catch {
-    // Publication is already committed. A cleanup failure must not report the
-    // complete destination as a failed generation.
-  }
+  await operations
+    .remove(staging, { force: true, recursive: true })
+    .catch(() => {
+      // Publication is already committed. A cleanup failure must not report the
+      // complete destination as a failed generation.
+    });
 };
 
 export const applyGenerationPlan = async (
@@ -283,6 +329,10 @@ export const applyGenerationPlan = async (
     preparedParent.realPath,
     path.basename(requestedDestination)
   );
+  const publicationOperations: ApplyPlanPublicationOperations = {
+    remove: options.publicationOperations?.remove ?? rm,
+    rename: options.publicationOperations?.rename ?? rename,
+  };
   let staging: string | undefined;
 
   try {
@@ -337,10 +387,19 @@ export const applyGenerationPlan = async (
     }
 
     throwIfAborted(options.signal);
-    await publishStagingTree(activeStaging, resolvedDestination);
+    await publishStagingTree(
+      activeStaging,
+      resolvedDestination,
+      publicationOperations
+    );
   } catch (error: unknown) {
     if (staging !== undefined) {
-      await rm(staging, { force: true, recursive: true });
+      await publicationOperations
+        .remove(staging, { force: true, recursive: true })
+        .catch(() => {
+          // Keep the publication error authoritative. In particular, cleanup
+          // must not erase an incomplete destination state.
+        });
     }
     await removeEmptyDirectories(preparedParent.createdDirectories);
 

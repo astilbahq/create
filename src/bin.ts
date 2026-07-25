@@ -19,9 +19,9 @@ const interrupt = (): void => {
   abortController.abort(
     new CreateAstilbaError("Project creation was interrupted.", {
       code: "CANCELLED",
+      destinationState: "unchanged",
       exitCode: 130,
       phase: "unknown",
-      projectCreated: false,
     })
   );
 };
@@ -32,8 +32,8 @@ try {
   await runCli(process.argv.slice(2), { signal: abortController.signal });
 } catch (error: unknown) {
   const failure = normalizeCreateAstilbaError(error, {
+    destinationState: "unchanged",
     phase: "unknown",
-    projectCreated: false,
   });
 
   if (isJsonOutputRequested(process.argv.slice(2))) {

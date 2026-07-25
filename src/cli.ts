@@ -3,7 +3,11 @@ import type { Readable, Writable } from "node:stream";
 import { parseArgs } from "node:util";
 
 import { CreateAstilbaError, normalizeCreateAstilbaError } from "./errors.js";
-import { applyGenerationPlan } from "./generator/apply.js";
+import type { CreateAstilbaErrorPhase, DestinationState } from "./errors.js";
+import {
+  ApplyGenerationError,
+  applyGenerationPlan,
+} from "./generator/apply.js";
 import { assertSafeDestinationArgument } from "./generator/paths.js";
 import type { GenerationPlan } from "./generator/types.js";
 import { installProjectDependencies } from "./install.js";
@@ -87,10 +91,56 @@ export interface ScaffoldRequest {
 
 export interface ScaffoldResult {
   readonly destination: string;
+  readonly destinationState: DestinationState;
   readonly installed: boolean;
   readonly plan: GenerationPlan;
   readonly recipe: ProjectRecipeId;
 }
+
+type ScaffoldPhase = "generation" | "installation" | "planning";
+
+interface ScaffoldRuntime {
+  readonly applyPlan?: typeof applyGenerationPlan;
+  readonly installDependencies?: typeof installProjectDependencies;
+  readonly onPhase?: (phase: ScaffoldPhase) => void;
+}
+
+const reportScaffoldPhase = (
+  onPhase: ScaffoldRuntime["onPhase"],
+  phase: ScaffoldPhase
+): void => {
+  try {
+    onPhase?.(phase);
+  } catch {
+    // Progress rendering is best-effort and cannot change project state.
+  }
+};
+
+const throwIfScaffoldCancelled = (
+  signal: AbortSignal | undefined,
+  {
+    destination,
+    destinationState,
+    phase,
+  }: {
+    readonly destination: string;
+    readonly destinationState: DestinationState;
+    readonly phase: CreateAstilbaErrorPhase;
+  }
+): void => {
+  if (!signal?.aborted) {
+    return;
+  }
+
+  throw new CreateAstilbaError("Project creation was interrupted.", {
+    cause: signal.reason,
+    code: "CANCELLED",
+    destination,
+    destinationState,
+    exitCode: 130,
+    phase,
+  });
+};
 
 const readStringOption = (
   values: Readonly<Record<string, boolean | string | undefined>>,
@@ -879,80 +929,92 @@ export const resolveScaffoldRequest = async (
 export const scaffoldProject = async (
   request: ScaffoldRequest,
   forbiddenRoots: readonly string[] = [],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  runtime: ScaffoldRuntime = {}
 ): Promise<ScaffoldResult> => {
-  if (signal?.aborted) {
-    throw new CreateAstilbaError("Project creation was interrupted.", {
-      cause: signal.reason,
-      code: "CANCELLED",
-      destination: request.destination,
-      exitCode: 130,
-      phase: "input",
-      projectCreated: false,
-    });
-  }
+  reportScaffoldPhase(runtime.onPhase, "planning");
+  throwIfScaffoldCancelled(signal, {
+    destination: request.destination,
+    destinationState: "unchanged",
+    phase: "input",
+  });
   let plan: GenerationPlan;
 
   try {
     plan = createProjectGenerationPlan(request.recipe, request.options);
 
     if (!request.dryRun) {
-      await applyGenerationPlan(plan, request.destination, {
-        forbiddenRoots,
-        initializeGit: request.initializeGit,
-        ...(signal === undefined ? {} : { signal }),
-      });
+      reportScaffoldPhase(runtime.onPhase, "generation");
+      await (runtime.applyPlan ?? applyGenerationPlan)(
+        plan,
+        request.destination,
+        {
+          forbiddenRoots,
+          initializeGit: request.initializeGit,
+          ...(signal === undefined ? {} : { signal }),
+        }
+      );
     }
   } catch (error: unknown) {
-    if (signal?.aborted) {
-      throw new CreateAstilbaError("Project creation was interrupted.", {
-        cause: signal.reason,
-        code: "CANCELLED",
-        destination: request.destination,
-        exitCode: 130,
-        phase: "generation",
-        projectCreated: false,
-      });
-    }
+    const destinationState =
+      error instanceof ApplyGenerationError
+        ? error.destinationState
+        : "unchanged";
+
+    throwIfScaffoldCancelled(signal, {
+      destination: request.destination,
+      destinationState,
+      phase: "generation",
+    });
 
     throw normalizeCreateAstilbaError(error, {
       code: "GENERATION_FAILED",
       destination: request.destination,
+      destinationState,
       phase: "generation",
-      projectCreated: false,
     });
   }
 
-  if (!request.dryRun && signal?.aborted) {
-    throw new CreateAstilbaError("Project creation was interrupted.", {
-      cause: signal.reason,
-      code: "CANCELLED",
+  if (!request.dryRun) {
+    throwIfScaffoldCancelled(signal, {
       destination: request.destination,
-      exitCode: 130,
+      destinationState: "complete",
       phase: "generation",
-      projectCreated: true,
     });
   }
 
   if (request.installDependencies && !request.dryRun) {
-    if (signal?.aborted) {
-      throw new CreateAstilbaError("Project creation was interrupted.", {
-        cause: signal.reason,
-        code: "CANCELLED",
+    reportScaffoldPhase(runtime.onPhase, "installation");
+    throwIfScaffoldCancelled(signal, {
+      destination: request.destination,
+      destinationState: "complete",
+      phase: "installation",
+    });
+
+    try {
+      await (runtime.installDependencies ?? installProjectDependencies)(
+        request.destination,
+        signal === undefined ? {} : { signal }
+      );
+    } catch (error: unknown) {
+      throwIfScaffoldCancelled(signal, {
         destination: request.destination,
-        exitCode: 130,
+        destinationState: "complete",
         phase: "installation",
-        projectCreated: true,
+      });
+
+      throw normalizeCreateAstilbaError(error, {
+        code: "INSTALLATION_FAILED",
+        destination: request.destination,
+        destinationState: "complete",
+        phase: "installation",
       });
     }
-    await installProjectDependencies(
-      request.destination,
-      signal === undefined ? {} : { signal }
-    );
   }
 
   return {
     destination: request.destination,
+    destinationState: request.dryRun ? "unchanged" : "complete",
     installed: request.installDependencies && !request.dryRun,
     plan,
     recipe: request.recipe,
@@ -984,8 +1046,8 @@ const parseCliCommand = (arguments_: readonly string[]): ParsedCommand => {
   } catch (error: unknown) {
     throw normalizeCreateAstilbaError(error, {
       code: "INVALID_INPUT",
+      destinationState: "unchanged",
       phase: "input",
-      projectCreated: false,
     });
   }
 };
@@ -1021,19 +1083,19 @@ const resolveCliRequest = async (
         {
           cause,
           code: "CANCELLED",
+          destinationState: "unchanged",
           exitCode: 130,
           messageReported:
             error instanceof CliPromptCancelledError && error.messageReported,
           phase: "input",
-          projectCreated: false,
         }
       );
     }
 
     throw normalizeCreateAstilbaError(error, {
       code: "INVALID_INPUT",
+      destinationState: "unchanged",
       phase: "input",
-      projectCreated: false,
     });
   }
 };
@@ -1089,36 +1151,87 @@ const renderAfterScaffold = (
     throw normalizeCreateAstilbaError(error, {
       code: "UNEXPECTED_ERROR",
       destination: request.destination,
+      destinationState: request.dryRun ? "unchanged" : "complete",
       phase: "unknown",
-      projectCreated: !request.dryRun,
     });
   }
 };
 
-const getProgressMessages = (
-  request: ScaffoldRequest
-): {
-  readonly completion: string;
-  readonly progress: string;
-} => {
+const phaseMessage = (phase: ScaffoldPhase): string => {
+  switch (phase) {
+    case "generation": {
+      return "Generating project";
+    }
+    case "installation": {
+      return "Installing dependencies";
+    }
+    case "planning": {
+      return "Planning project";
+    }
+    default: {
+      const unreachablePhase: never = phase;
+      throw new TypeError(`Unknown scaffold phase: ${unreachablePhase}`);
+    }
+  }
+};
+
+const completionMessage = (request: ScaffoldRequest): string => {
   if (request.dryRun) {
-    return {
-      completion: "Project plan ready",
-      progress: "Planning project",
-    };
+    return "Project plan ready";
   }
 
   if (request.installDependencies) {
-    return {
-      completion: "Project created and dependencies installed",
-      progress: "Creating project and installing dependencies",
-    };
+    return "Project created and dependencies installed";
   }
 
-  return {
-    completion: "Project created",
-    progress: "Creating project",
-  };
+  return "Project created";
+};
+
+const failureProgressMessage = (error: unknown): string => {
+  if (!(error instanceof CreateAstilbaError)) {
+    return "Project creation needs attention";
+  }
+
+  if (error.destinationState === "incomplete") {
+    return "Project generation incomplete";
+  }
+
+  if (error.destinationState === "complete") {
+    if (error.phase === "installation") {
+      return error.code === "CANCELLED"
+        ? "Project created; installation interrupted"
+        : "Project created; installation needs attention";
+    }
+
+    return error.code === "CANCELLED"
+      ? "Project created; setup interrupted"
+      : "Project created; setup needs attention";
+  }
+
+  return error.code === "CANCELLED"
+    ? "Project creation interrupted"
+    : "Project creation needs attention";
+};
+
+const successSummary = (
+  request: ScaffoldRequest,
+  result: ScaffoldResult
+): string => {
+  const recipe = recipeRegistry.get(result.recipe);
+  const label = recipe?.label ?? result.recipe;
+
+  if (request.dryRun) {
+    return `Planned ${label} at ${result.destination}.`;
+  }
+
+  const installation = result.installed
+    ? "Dependencies installed."
+    : "Dependencies were not installed.";
+  const nextStep = result.installed
+    ? `Next: open ${result.destination} and run pnpm verify.`
+    : `Next: open ${result.destination}, run pnpm install --frozen-lockfile, then run pnpm verify.`;
+
+  return `Created ${label} at ${result.destination}. ${installation}\n${nextStep}`;
 };
 
 export const runCli = async (
@@ -1167,17 +1280,21 @@ export const runCli = async (
     request.json || !canRenderClack
       ? undefined
       : terminal.spinner(options.signal);
-  const progressMessages = getProgressMessages(request);
-
-  spinner?.start(progressMessages.progress);
+  spinner?.start(phaseMessage("planning"));
 
   let result: ScaffoldResult;
 
   try {
-    result = await scaffoldProject(request, [], options.signal);
+    result = await scaffoldProject(request, [], options.signal, {
+      onPhase: (phase) => {
+        if (phase !== "planning") {
+          spinner?.message(phaseMessage(phase));
+        }
+      },
+    });
   } catch (error: unknown) {
     try {
-      spinner?.stop("Project creation needs attention");
+      spinner?.stop(failureProgressMessage(error));
     } catch {
       // Keep the operation failure authoritative if terminal rendering fails.
     }
@@ -1185,7 +1302,7 @@ export const runCli = async (
   }
 
   renderAfterScaffold(request, () => {
-    spinner?.stop(progressMessages.completion);
+    spinner?.stop(completionMessage(request));
   });
 
   if (request.json) {
@@ -1195,9 +1312,7 @@ export const runCli = async (
     return;
   }
 
-  const recipe = recipeRegistry.get(result.recipe);
-  const verb = request.dryRun ? "Planned" : "Created";
-  const summary = `${verb} ${recipe?.label ?? result.recipe} at ${result.destination}`;
+  const summary = successSummary(request, result);
 
   renderAfterScaffold(request, () => {
     if (canRenderClack) {

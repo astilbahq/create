@@ -13,7 +13,7 @@ import { readRecipeLockfile } from "./recipe-lockfiles.js";
 import { getProjectRecipe } from "./recipes.js";
 import type { ProjectRecipeId } from "./recipes.js";
 
-export const CREATE_ASTILBA_VERSION = "0.1.2";
+export const CREATE_ASTILBA_VERSION = "0.2.0";
 export const PROJECT_MANIFEST_PATH = ".astilba/project.json";
 export const PROJECT_MANIFEST_SCHEMA =
   "https://astilba.com/schemas/create/v1.json";

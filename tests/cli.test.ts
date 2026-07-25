@@ -24,6 +24,7 @@ import {
 } from "../src/cli.js";
 import type { CreateAstilbaError } from "../src/errors.js";
 import { PROJECT_MANIFEST_PATH } from "../src/manifest.js";
+import { CliPromptCancelledError } from "../src/terminal.js";
 import type { CliPromptId, CliTerminal } from "../src/terminal.js";
 
 const temporaryRoots: string[] = [];
@@ -48,29 +49,48 @@ const completeArguments = [
 
 interface RecordingTerminal {
   readonly events: string[];
+  readonly notes: string[];
   readonly terminal: CliTerminal;
 }
 
 const createRecordingTerminal = (
-  values: Partial<Record<CliPromptId, boolean | string>> = {}
+  values: Partial<
+    Record<CliPromptId, boolean | string | readonly (boolean | string)[]>
+  > = {}
 ): RecordingTerminal => {
   const events: string[] = [];
-  const answers: Record<CliPromptId, boolean | string> = {
-    "confirm-creation": true,
+  const notes: string[] = [];
+  const answers: Record<
+    CliPromptId,
+    boolean | string | readonly (boolean | string)[]
+  > = {
+    "customize-metadata": false,
     description: "An example project.",
     destination: "my-project",
+    "edit-field": "description",
     "github-owner": "example",
+    "github-repo": "my-project",
     "initialize-git": true,
     "install-dependencies": true,
     "package-name": "my-project",
+    "project-name": "my-project",
     recipe: "typescript-library",
+    "review-action": "create",
     ...values,
   };
+  const answerIndexes = new Map<CliPromptId, number>();
   const readAnswer = (id: CliPromptId): boolean | string => {
-    const answer = answers[id];
+    const configuredAnswer = answers[id];
+    const answer = Array.isArray(configuredAnswer)
+      ? configuredAnswer[answerIndexes.get(id) ?? 0]
+      : configuredAnswer;
 
     if (answer === undefined) {
       throw new Error(`No recorded answer for ${id}.`);
+    }
+
+    if (Array.isArray(configuredAnswer)) {
+      answerIndexes.set(id, (answerIndexes.get(id) ?? 0) + 1);
     }
 
     return answer;
@@ -78,6 +98,7 @@ const createRecordingTerminal = (
 
   return {
     events,
+    notes,
     terminal: {
       cancel: (message) => {
         events.push(`cancel:${message}`);
@@ -94,6 +115,10 @@ const createRecordingTerminal = (
       },
       intro: (message) => {
         events.push(`intro:${message}`);
+      },
+      note: (message, title) => {
+        events.push(`note:${title ?? ""}`);
+        notes.push(message);
       },
       outro: (message) => {
         events.push(`outro:${message}`);
@@ -205,6 +230,8 @@ describe("Astilba Create CLI", () => {
       "intro:Astilba Create",
       "text:description",
       "text:github-owner",
+      "confirm:customize-metadata",
+      "note:Review your project",
     ]);
   });
 
@@ -228,14 +255,245 @@ describe("Astilba Create CLI", () => {
 
     expect(recording.events).toEqual([
       "intro:Astilba Create",
-      "text:destination",
       "select:recipe",
+      "text:destination",
       "text:description",
-      "text:package-name",
       "text:github-owner",
+      "confirm:customize-metadata",
       "confirm:initialize-git",
       "confirm:install-dependencies",
+      "note:Review your project",
     ]);
+  });
+
+  it("validates and reviews every resolved value before creation", async () => {
+    const recording = createRecordingTerminal({
+      "customize-metadata": true,
+      "github-repo": "web",
+      "package-name": "@example/web",
+      "project-name": "web",
+      recipe: "react-vite-spa",
+    });
+    const parsed = parseCliArguments([]);
+
+    if (parsed.command !== "create") {
+      throw new Error("Expected a create command.");
+    }
+
+    await expect(
+      resolveScaffoldRequest(parsed.input, {
+        cwd: "/work",
+        interactive: true,
+        terminal: recording.terminal,
+      })
+    ).resolves.toMatchObject({
+      destination: path.resolve("/work/my-project"),
+      options: {
+        githubRepo: "web",
+        packageName: "@example/web",
+        projectName: "web",
+      },
+      recipe: "react-vite-spa",
+    });
+
+    expect(recording.notes).toHaveLength(1);
+    expect(recording.notes[0]).toContain("React + Vite application");
+    expect(recording.notes[0]).toContain("@example/web");
+    expect(recording.notes[0]).toContain("example/web");
+    expect(recording.events.at(-1)).toBe("select:review-action");
+  });
+
+  it("returns to the validated review after changing a detail", async () => {
+    const recording = createRecordingTerminal({
+      "edit-field": "package-name",
+      "package-name": "@example/project",
+      "review-action": ["change", "create"],
+    });
+    const parsed = parseCliArguments([]);
+
+    if (parsed.command !== "create") {
+      throw new Error("Expected a create command.");
+    }
+
+    await expect(
+      resolveScaffoldRequest(parsed.input, {
+        cwd: "/work",
+        interactive: true,
+        terminal: recording.terminal,
+      })
+    ).resolves.toMatchObject({
+      options: {
+        packageName: "@example/project",
+      },
+    });
+
+    expect(recording.notes).toHaveLength(2);
+    expect(recording.notes[0]).toContain("Package name: my-project");
+    expect(recording.notes[1]).toContain("Package name: @example/project");
+    expect(recording.events.slice(-5)).toEqual([
+      "select:review-action",
+      "select:edit-field",
+      "text:package-name",
+      "note:Review your project",
+      "select:review-action",
+    ]);
+  });
+
+  it("preserves explicit metadata that matches an inferred name", async () => {
+    const recording = createRecordingTerminal({
+      destination: "renamed-project",
+      "edit-field": "destination",
+      "review-action": ["change", "create"],
+    });
+    const parsed = parseCliArguments([
+      "my-project",
+      "--recipe",
+      "typescript-library",
+      "--package-name",
+      "my-project",
+    ]);
+
+    if (parsed.command !== "create") {
+      throw new Error("Expected a create command.");
+    }
+
+    await expect(
+      resolveScaffoldRequest(parsed.input, {
+        cwd: "/work",
+        interactive: true,
+        terminal: recording.terminal,
+      })
+    ).resolves.toMatchObject({
+      destination: path.resolve("/work/renamed-project"),
+      options: {
+        githubRepo: "renamed-project",
+        packageName: "my-project",
+        projectName: "renamed-project",
+      },
+    });
+  });
+
+  it("updates metadata that is still inferred after a destination change", async () => {
+    const recording = createRecordingTerminal({
+      destination: ["my-project", "renamed-project"],
+      "edit-field": "destination",
+      "review-action": ["change", "create"],
+    });
+    const parsed = parseCliArguments([]);
+
+    if (parsed.command !== "create") {
+      throw new Error("Expected a create command.");
+    }
+
+    await expect(
+      resolveScaffoldRequest(parsed.input, {
+        cwd: "/work",
+        interactive: true,
+        terminal: recording.terminal,
+      })
+    ).resolves.toMatchObject({
+      destination: path.resolve("/work/renamed-project"),
+      options: {
+        githubRepo: "renamed-project",
+        packageName: "renamed-project",
+        projectName: "renamed-project",
+      },
+    });
+  });
+
+  it("keeps manually edited metadata user-owned when its value matches the default", async () => {
+    const recording = createRecordingTerminal({
+      destination: ["my-project", "renamed-project"],
+      "edit-field": ["package-name", "destination"],
+      "package-name": "my-project",
+      "review-action": ["change", "change", "create"],
+    });
+    const parsed = parseCliArguments([]);
+
+    if (parsed.command !== "create") {
+      throw new Error("Expected a create command.");
+    }
+
+    await expect(
+      resolveScaffoldRequest(parsed.input, {
+        cwd: "/work",
+        interactive: true,
+        terminal: recording.terminal,
+      })
+    ).resolves.toMatchObject({
+      options: {
+        githubRepo: "renamed-project",
+        packageName: "my-project",
+        projectName: "renamed-project",
+      },
+    });
+  });
+
+  it("cancels from the review without creating a project", async () => {
+    const recording = createRecordingTerminal({
+      "review-action": "cancel",
+    });
+    const parsed = parseCliArguments([]);
+
+    if (parsed.command !== "create") {
+      throw new Error("Expected a create command.");
+    }
+
+    await expect(
+      resolveScaffoldRequest(parsed.input, {
+        interactive: true,
+        terminal: recording.terminal,
+      })
+    ).rejects.toBeInstanceOf(CliPromptCancelledError);
+    expect(recording.events.slice(-2)).toEqual([
+      "select:review-action",
+      "cancel:Project creation cancelled.",
+    ]);
+  });
+
+  it("keeps cancellation authoritative when its renderer fails", async () => {
+    const recording = createRecordingTerminal({
+      "review-action": "cancel",
+    });
+    const terminal: CliTerminal = {
+      ...recording.terminal,
+      cancel: () => {
+        throw new Error("rendering failed");
+      },
+    };
+
+    await expect(
+      runCli([], {
+        interactive: true,
+        terminal,
+      })
+    ).rejects.toMatchObject({
+      code: "CANCELLED",
+      exitCode: 130,
+      messageReported: false,
+      phase: "input",
+      projectCreated: false,
+    } satisfies Partial<CreateAstilbaError>);
+  });
+
+  it("rejects invalid supplied partial values before prompting", async () => {
+    const recording = createRecordingTerminal();
+    const parsed = parseCliArguments([
+      "--package-name",
+      "invalid package name",
+    ]);
+
+    if (parsed.command !== "create") {
+      throw new Error("Expected a create command.");
+    }
+
+    await expect(
+      resolveScaffoldRequest(parsed.input, {
+        interactive: true,
+        terminal: recording.terminal,
+      })
+    ).rejects.toThrow("Package name is not a supported npm package name.");
+    expect(recording.events).toEqual([]);
   });
 
   it("keeps JSON output isolated from terminal rendering", async () => {
@@ -327,7 +585,7 @@ describe("Astilba Create CLI", () => {
         throw signal.reason;
       },
     };
-    const result = runCli([], {
+    const result = runCli(["--recipe", "typescript-library"], {
       interactive: true,
       output: output.stream,
       signal: controller.signal,

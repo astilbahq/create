@@ -10,7 +10,7 @@ Astilba Create is an ordinary public repository, not a GitHub template. Its dete
 npm create astilba@latest
 ```
 
-The interactive CLI asks where to create the project, which supported recipe to use, and the small amount of project metadata that cannot be inferred safely.
+The interactive CLI starts with a maintained recipe, then asks for the destination and the small amount of project metadata that cannot be inferred safely. Inferred project, package, and repository names can be customized together. Every resolved value is validated and shown for review before you create the project, with an option to change individual details without restarting.
 
 For agents and automated environments, provide every input explicitly:
 
@@ -71,7 +71,7 @@ pnpm test:package
 From this checkout, run the development CLI with:
 
 ```sh
-pnpm create
+pnpm run create
 ```
 
 `pnpm test:consumers` generates, installs with each recipe's frozen lockfile, verifies, and builds every recipe as an independent project. `pnpm test:package` repeats that test through the actual npm tarball.

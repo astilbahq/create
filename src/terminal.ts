@@ -3,14 +3,18 @@ import type { Readable, Writable } from "node:stream";
 import * as prompts from "@clack/prompts";
 
 export type CliPromptId =
-  | "confirm-creation"
+  | "customize-metadata"
   | "description"
   | "destination"
+  | "edit-field"
+  | "github-repo"
   | "github-owner"
   | "initialize-git"
   | "install-dependencies"
   | "package-name"
-  | "recipe";
+  | "project-name"
+  | "recipe"
+  | "review-action";
 
 interface CliPromptOptions {
   readonly message: string;
@@ -18,6 +22,7 @@ interface CliPromptOptions {
 
 interface CliTextPromptOptions extends CliPromptOptions {
   readonly defaultValue?: string;
+  readonly initialValue?: string;
   readonly placeholder?: string;
   readonly validate?: (value: string | undefined) => string | undefined;
 }
@@ -49,6 +54,11 @@ export interface CliTerminal {
     signal?: AbortSignal
   ) => Promise<boolean>;
   readonly intro: (message: string, signal?: AbortSignal) => void;
+  readonly note: (
+    message: string,
+    title?: string,
+    signal?: AbortSignal
+  ) => void;
   readonly outro: (message: string, signal?: AbortSignal) => void;
   readonly select: (
     id: CliPromptId,
@@ -64,9 +74,12 @@ export interface CliTerminal {
 }
 
 export class CliPromptCancelledError extends Error {
-  public constructor() {
+  public readonly messageReported: boolean;
+
+  public constructor(messageReported = false) {
     super("Project creation was cancelled.");
     this.name = "CliPromptCancelledError";
+    this.messageReported = messageReported;
   }
 }
 
@@ -94,8 +107,16 @@ export const createClackTerminal = ({
     commonOptions: ReturnType<typeof createCommonOptions>
   ): Value => {
     if (prompts.isCancel(value)) {
-      prompts.cancel("Project creation cancelled.", commonOptions);
-      throw new CliPromptCancelledError();
+      let messageReported = false;
+
+      try {
+        prompts.cancel("Project creation cancelled.", commonOptions);
+        messageReported = true;
+      } catch {
+        // Cancellation remains authoritative if its best-effort renderer fails.
+      }
+
+      throw new CliPromptCancelledError(messageReported);
     }
 
     return value;
@@ -130,6 +151,9 @@ export const createClackTerminal = ({
     intro: (message, overrideSignal) => {
       prompts.intro(message, createCommonOptions(overrideSignal));
     },
+    note: (message, title, overrideSignal) => {
+      prompts.note(message, title, createCommonOptions(overrideSignal));
+    },
     outro: (message, overrideSignal) => {
       prompts.outro(message, createCommonOptions(overrideSignal));
     },
@@ -162,9 +186,17 @@ export const createClackTerminal = ({
     },
     text: async (_id, options, overrideSignal) => {
       const commonOptions = createCommonOptions(overrideSignal);
+      const validate =
+        options.validate === undefined
+          ? undefined
+          : (value: string | undefined) =>
+              options.validate?.(
+                (value ?? "").length === 0 ? options.defaultValue : value
+              );
       return requirePromptString(
         await prompts.text({
           ...options,
+          ...(validate === undefined ? {} : { validate }),
           ...commonOptions,
         }),
         commonOptions

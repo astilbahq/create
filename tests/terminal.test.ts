@@ -42,6 +42,24 @@ describe("Clack terminal adapter", () => {
     input.write("my-project\r");
     await expect(textAnswer).resolves.toBe("my-project");
 
+    const defaultAnswer = terminal.text("project-name", {
+      defaultValue: "my-project",
+      message: "Project name",
+      validate: (value) =>
+        value === "my-project" ? undefined : "Use the default.",
+    });
+    await waitForImmediate();
+    input.write("\r");
+    await expect(defaultAnswer).resolves.toBe("my-project");
+
+    const initialAnswer = terminal.text("package-name", {
+      initialValue: "@example/my-project",
+      message: "Package name",
+    });
+    await waitForImmediate();
+    input.write("\r");
+    await expect(initialAnswer).resolves.toBe("@example/my-project");
+
     const selectAnswer = terminal.select("recipe", {
       message: "Choose a recipe",
       options: [{ label: "TypeScript library", value: "typescript-library" }],
@@ -50,7 +68,7 @@ describe("Clack terminal adapter", () => {
     input.write("\r");
     await expect(selectAnswer).resolves.toBe("typescript-library");
 
-    const confirmAnswer = terminal.confirm("confirm-creation", {
+    const confirmAnswer = terminal.confirm("initialize-git", {
       initialValue: true,
       message: "Create the project?",
     });
@@ -64,6 +82,22 @@ describe("Clack terminal adapter", () => {
     expect(rendered).toContain("Choose a recipe");
     expect(rendered).toContain("Create the ");
     expect(rendered).toContain("project?");
+  });
+
+  it("renders review notes through the provided output stream", () => {
+    const input = new TtyPassThrough();
+    const output = new TtyPassThrough();
+    let rendered = "";
+    output.on("data", (chunk: Buffer) => {
+      rendered += chunk.toString("utf-8");
+    });
+    const terminal = createClackTerminal({ input, output });
+
+    terminal.note("Destination  /work/project", "Review your project");
+
+    expect(rendered).toContain("Review your project");
+    expect(rendered).toContain("Destination");
+    expect(rendered).toContain("/work/project");
   });
 
   it("renders and cleans up a real cancelled prompt", async () => {
@@ -84,6 +118,25 @@ describe("Clack terminal adapter", () => {
     await expect(answer).rejects.toBeInstanceOf(CliPromptCancelledError);
     expect(input.rawModeChanges.at(-1)).toBe(false);
     expect(rendered).toContain("Project creation cancelled.");
+  });
+
+  it("reports intentional cancellation once without an error label", async () => {
+    const { stderr, stdout } = await executeFile(
+      process.execPath,
+      ["--import", "tsx", "tests/fixtures/clack-cancellation-child.mjs"],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          FORCE_COLOR: "0",
+          NO_COLOR: "1",
+        },
+      }
+    );
+
+    expect(stderr).toBe("");
+    expect(stdout.match(/Project creation cancelled\./gu)).toHaveLength(1);
+    expect(stdout).not.toContain("Error:");
   });
 
   it("honors NO_COLOR when Clack loads in a fresh process", async () => {

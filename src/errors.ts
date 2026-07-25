@@ -18,6 +18,7 @@ export interface CreateAstilbaErrorOptions {
   readonly destination?: string;
   readonly diagnostics?: string;
   readonly exitCode?: number;
+  readonly messageReported?: boolean;
   readonly phase: CreateAstilbaErrorPhase;
   readonly projectCreated?: boolean;
 }
@@ -27,6 +28,7 @@ export class CreateAstilbaError extends Error {
   public readonly destination: string | undefined;
   public readonly diagnostics: string | undefined;
   public readonly exitCode: number;
+  public readonly messageReported: boolean;
   public readonly phase: CreateAstilbaErrorPhase;
   public readonly projectCreated: boolean;
 
@@ -37,6 +39,7 @@ export class CreateAstilbaError extends Error {
     this.destination = options.destination;
     this.diagnostics = options.diagnostics;
     this.exitCode = options.exitCode ?? 1;
+    this.messageReported = options.messageReported ?? false;
     this.phase = options.phase;
     this.projectCreated = options.projectCreated ?? false;
   }

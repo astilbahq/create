@@ -11,6 +11,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { Ajv2020 } from "ajv/dist/2020.js";
+
+import { createCatalogResult } from "../src/cli.js";
 import {
   PROJECT_MANIFEST_PATH,
   PROJECT_MANIFEST_SCHEMA,
@@ -23,11 +26,13 @@ const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const run = async (
   command: string,
   arguments_: readonly string[],
-  cwd: string
+  cwd: string,
+  timeout?: number
 ): Promise<string> => {
   const { stderr, stdout } = await executeFile(command, [...arguments_], {
     cwd,
     maxBuffer: 20 * 1024 * 1024,
+    ...(timeout === undefined ? {} : { timeout }),
   });
 
   if (stderr.length > 0) {
@@ -65,6 +70,7 @@ const inspectTarball = async (tarball: string): Promise<void> => {
     "package/README.md",
     "package/package.json",
     "package/recipes/contracts.json",
+    "package/schemas/catalog-v1.json",
     "package/schemas/create-project-v1.json",
     ...recipeLockfiles,
   ]);
@@ -174,13 +180,20 @@ const main = async (): Promise<void> => {
       ["install", "--ignore-scripts", "--no-audit", "--no-fund", tarball],
       temporaryRoot
     );
-    const binPath = path.join(
+    const installedPackageRoot = path.join(
       temporaryRoot,
       "node_modules",
-      "create-astilba",
-      "dist",
-      "bin.js"
+      "create-astilba"
     );
+    const installedPackage = JSON.parse(
+      await readFile(path.join(installedPackageRoot, "package.json"), "utf-8")
+    ) as { readonly version?: string };
+
+    if (installedPackage.version === undefined) {
+      throw new Error("Packed package does not declare a version.");
+    }
+
+    const binPath = path.join(installedPackageRoot, "dist", "bin.js");
     const binSource = await readFile(binPath, "utf-8");
 
     if (!binSource.startsWith("#!/usr/bin/env node\n")) {
@@ -195,6 +208,63 @@ const main = async (): Promise<void> => {
 
     if (!help.includes("Create a project with Astilba")) {
       throw new Error("Packed CLI help output is invalid.");
+    }
+
+    const catalogOutput = await run(
+      "npm",
+      [
+        "exec",
+        "--prefix",
+        temporaryRoot,
+        "--",
+        "create-astilba",
+        "--catalog",
+        "--json",
+      ],
+      temporaryRoot,
+      10_000
+    );
+    const catalog = JSON.parse(catalogOutput) as {
+      readonly command?: string;
+      readonly generator?: { readonly version?: string };
+      readonly ok?: boolean;
+      readonly recipes?: readonly {
+        readonly description?: string;
+        readonly id?: string;
+        readonly label?: string;
+        readonly version?: number;
+      }[];
+      readonly schemaVersion?: number;
+    };
+
+    const catalogSchema = JSON.parse(
+      await readFile(
+        path.join(installedPackageRoot, "schemas", "catalog-v1.json"),
+        "utf-8"
+      )
+    ) as object;
+    const validateCatalog = new Ajv2020({
+      allErrors: true,
+      strict: true,
+    }).compile(catalogSchema);
+
+    if (!validateCatalog(catalog)) {
+      throw new Error(
+        `Packed CLI catalog does not match its schema: ${JSON.stringify(
+          validateCatalog.errors
+        )}`
+      );
+    }
+
+    if (
+      catalog.command !== "catalog" ||
+      catalog.generator?.version !== installedPackage.version ||
+      catalog.ok !== true ||
+      catalog.schemaVersion !== 1 ||
+      JSON.stringify(catalog.recipes) !==
+        JSON.stringify(createCatalogResult().recipes)
+    ) {
+      throw new Error("Packed CLI catalog output is invalid.");
     }
 
     for (const recipe of projectRecipeIds) {

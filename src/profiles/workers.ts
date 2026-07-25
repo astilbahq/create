@@ -5,6 +5,7 @@ import { file, projectProfileConflicts, seededFile } from "./shared.js";
 const WORKER_NAME_PATTERN = /^[a-z\d](?:[a-z\d-]{0,61}[a-z\d])?$/u;
 
 export const workersProfile: Profile = {
+  allowedBuildDependencies: ["sharp", "workerd"],
   conflicts: projectProfileConflicts("workers"),
   files: [
     file(

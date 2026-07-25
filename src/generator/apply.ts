@@ -25,6 +25,7 @@ import type { GenerationPlan } from "./types.js";
 export interface ApplyPlanOptions {
   readonly forbiddenRoots?: readonly string[];
   readonly initializeGit?: boolean;
+  readonly signal?: AbortSignal;
 }
 
 const pathExists = async (candidate: string): Promise<boolean> => {
@@ -62,36 +63,99 @@ const createPlannedSymlink = async (
   }
 };
 
-const assertNoSymlinkAncestors = async (candidate: string): Promise<void> => {
+interface PreparedParent {
+  readonly createdDirectories: readonly string[];
+  readonly realPath: string;
+}
+
+const removeEmptyDirectories = async (
+  directories: readonly string[]
+): Promise<void> => {
+  for (const directory of [...directories].toReversed()) {
+    try {
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Parents must be removed from the deepest directory upward.
+      await rmdir(directory);
+    } catch {
+      // Preserve externally modified directories.
+    }
+  }
+};
+
+const throwIfAborted = (signal?: AbortSignal): void => {
+  if (signal?.aborted) {
+    throw new Error("Project generation was interrupted.", {
+      cause: signal.reason,
+    });
+  }
+};
+
+const assertOutsideForbiddenRoots = (
+  candidate: string,
+  forbiddenRoots: readonly string[]
+): void => {
+  for (const forbiddenRoot of forbiddenRoots) {
+    if (isWithinPath(candidate, forbiddenRoot)) {
+      throw new Error(
+        `Destination must not be inside the protected path: ${forbiddenRoot}.`
+      );
+    }
+  }
+};
+
+const prepareDestinationParent = async (
+  candidate: string,
+  forbiddenRoots: readonly string[],
+  signal?: AbortSignal
+): Promise<PreparedParent> => {
   const resolved = path.resolve(candidate);
   const { root } = path.parse(resolved);
   const segments = path
     .relative(root, resolved)
     .split(path.sep)
     .filter(Boolean);
-  const ancestors: string[] = [];
+  const createdDirectories: string[] = [];
   let current = root;
 
-  for (const segment of segments) {
-    current = path.join(current, segment);
-    ancestors.push(current);
-  }
+  try {
+    for (const segment of segments) {
+      throwIfAborted(signal);
+      current = path.join(current, segment);
 
-  await Promise.all(
-    ancestors.map(async (ancestor) => {
-      if (!(await pathExists(ancestor))) {
-        throw new Error(`Destination parent does not exist: ${ancestor}.`);
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Each path segment is validated before descending into it.
+      if (!(await pathExists(current))) {
+        assertOutsideForbiddenRoots(current, forbiddenRoots);
+        // oxlint-disable-next-line eslint/no-await-in-loop -- Parent creation is intentionally one segment at a time.
+        await mkdir(current, { mode: 0o755 });
+        createdDirectories.push(current);
       }
 
-      const stats = await lstat(ancestor);
+      // oxlint-disable-next-line eslint/no-await-in-loop -- The newly observed path must be checked for races and symlinks.
+      const stats = await lstat(current);
 
       if (stats.isSymbolicLink()) {
         throw new Error(
-          `Destination parent must not contain symlinks: ${ancestor}.`
+          `Destination parent must not contain symlinks: ${current}.`
         );
       }
-    })
-  );
+
+      if (!stats.isDirectory()) {
+        throw new Error(`Destination parent must be a directory: ${current}.`);
+      }
+
+      // oxlint-disable-next-line eslint/no-await-in-loop -- Canonical containment must be checked before creating the next segment.
+      const canonicalCurrent = await realpath(current);
+      assertOutsideForbiddenRoots(canonicalCurrent, forbiddenRoots);
+    }
+
+    throwIfAborted(signal);
+    return {
+      createdDirectories,
+      realPath: await realpath(resolved),
+    };
+  } catch (error: unknown) {
+    await removeEmptyDirectories(createdDirectories);
+    throw error;
+  }
 };
 
 const applyFileModes = async (
@@ -186,7 +250,13 @@ const publishStagingTree = async (
   }
 
   await rm(incompleteMarker);
-  await rmdir(staging);
+
+  try {
+    await rm(staging, { force: true, recursive: true });
+  } catch {
+    // Publication is already committed. A cleanup failure must not report the
+    // complete destination as a failed generation.
+  }
 };
 
 export const applyGenerationPlan = async (
@@ -194,37 +264,43 @@ export const applyGenerationPlan = async (
   destination: string,
   options: ApplyPlanOptions = {}
 ): Promise<void> => {
+  throwIfAborted(options.signal);
   assertSafeDestinationPath(destination);
   const requestedDestination = path.resolve(destination);
   const requestedParent = path.dirname(requestedDestination);
-  await assertNoSymlinkAncestors(requestedParent);
-
-  const parent = await realpath(requestedParent);
-  const resolvedDestination = path.join(
-    parent,
-    path.basename(requestedDestination)
-  );
-
   const resolvedForbiddenRoots = await Promise.all(
     (options.forbiddenRoots ?? []).map((root) => realpath(root))
   );
 
-  for (const resolvedForbiddenRoot of resolvedForbiddenRoots) {
-    if (isWithinPath(resolvedDestination, resolvedForbiddenRoot)) {
-      throw new Error(
-        `Destination must not be inside the protected path: ${resolvedForbiddenRoot}.`
-      );
-    }
-  }
+  assertOutsideForbiddenRoots(requestedDestination, resolvedForbiddenRoots);
 
-  const staging = await mkdtemp(
-    path.join(parent, `.${path.basename(resolvedDestination)}.foundation-`)
+  const preparedParent = await prepareDestinationParent(
+    requestedParent,
+    resolvedForbiddenRoots,
+    options.signal
   );
+  const resolvedDestination = path.join(
+    preparedParent.realPath,
+    path.basename(requestedDestination)
+  );
+  let staging: string | undefined;
 
   try {
+    throwIfAborted(options.signal);
+    assertOutsideForbiddenRoots(resolvedDestination, resolvedForbiddenRoots);
+
+    const activeStaging = await mkdtemp(
+      path.join(
+        preparedParent.realPath,
+        `.${path.basename(resolvedDestination)}.foundation-`
+      )
+    );
+    staging = activeStaging;
+
     await Promise.all(
       plan.files.map(async (file) => {
-        const output = resolveOutputPath(staging, file.path);
+        throwIfAborted(options.signal);
+        const output = resolveOutputPath(activeStaging, file.path);
         await mkdir(path.dirname(output), { mode: 0o755, recursive: true });
         await writeFile(output, file.content, {
           encoding: "utf-8",
@@ -236,8 +312,9 @@ export const applyGenerationPlan = async (
 
     await Promise.all(
       (plan.symlinks ?? []).map(async (link) => {
-        const output = resolveOutputPath(staging, link.path);
-        const target = resolveOutputPath(staging, link.targetPath);
+        throwIfAborted(options.signal);
+        const output = resolveOutputPath(activeStaging, link.path);
+        const target = resolveOutputPath(activeStaging, link.targetPath);
         const targetStats = await lstat(target);
 
         if (!targetStats.isFile() || targetStats.isSymbolicLink()) {
@@ -251,15 +328,21 @@ export const applyGenerationPlan = async (
       })
     );
 
-    await applyFileModes(plan, staging);
+    throwIfAborted(options.signal);
+    await applyFileModes(plan, activeStaging);
+    throwIfAborted(options.signal);
 
     if (options.initializeGit === true) {
-      await initializeGitRepository(staging);
+      await initializeGitRepository(activeStaging, process.env, options.signal);
     }
 
-    await publishStagingTree(staging, resolvedDestination);
+    throwIfAborted(options.signal);
+    await publishStagingTree(activeStaging, resolvedDestination);
   } catch (error: unknown) {
-    await rm(staging, { force: true, recursive: true });
+    if (staging !== undefined) {
+      await rm(staging, { force: true, recursive: true });
+    }
+    await removeEmptyDirectories(preparedParent.createdDirectories);
 
     if (error instanceof Error && "code" in error && error.code === "EEXIST") {
       throw new Error("Destination must not already exist.", {

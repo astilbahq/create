@@ -63,7 +63,7 @@ const plan: GenerationPlan = {
 };
 
 describe("applyGenerationPlan", () => {
-  it("atomically creates the planned tree", async () => {
+  it("publishes the complete planned tree", async () => {
     const root = await createTemporaryRoot();
     const destination = path.join(root, "project");
 
@@ -81,6 +81,43 @@ describe("applyGenerationPlan", () => {
     await expect(
       lstat(path.join(destination, ".astilba-create-incomplete"))
     ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("creates missing destination parents", async () => {
+    const root = await createTemporaryRoot();
+    const destination = path.join(root, "nested", "projects", "project");
+
+    await applyGenerationPlan(plan, destination);
+
+    await expect(
+      readFile(path.join(destination, "README.md"), "utf-8")
+    ).resolves.toBe("# Example\n");
+  });
+
+  it("removes newly created empty parents after a failed generation", async () => {
+    const root = await createTemporaryRoot();
+    const parent = path.join(root, "nested", "projects");
+    const destination = path.join(parent, "project");
+    const invalidPlan: GenerationPlan = {
+      files: [
+        ...plan.files,
+        {
+          content: "collision",
+          mode: 0o644,
+          origin: "test",
+          ownership: "managed",
+          path: "src",
+        },
+      ],
+      profiles: ["test"],
+    };
+
+    await expect(
+      applyGenerationPlan(invalidPlan, destination)
+    ).rejects.toThrow();
+    await expect(lstat(path.join(root, "nested"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it("publishes an initialized Git repository as part of the tree", async () => {
@@ -116,6 +153,45 @@ describe("applyGenerationPlan", () => {
         forbiddenRoots: [root],
       })
     ).rejects.toThrow(/protected path/u);
+  });
+
+  it("does not mutate a protected root reached through case folding", async () => {
+    const root = await createTemporaryRoot();
+    const protectedRoot = path.join(root, "Protected");
+    const alternateCase = path.join(root, "protected");
+    await mkdir(protectedRoot);
+
+    try {
+      await lstat(alternateCase);
+    } catch {
+      // This filesystem is case-sensitive, so it cannot exercise the alias.
+      return;
+    }
+
+    await expect(
+      applyGenerationPlan(
+        plan,
+        path.join(alternateCase, "new-parent", "project"),
+        { forbiddenRoots: [protectedRoot] }
+      )
+    ).rejects.toThrow(/protected path/u);
+    await expect(
+      lstat(path.join(protectedRoot, "new-parent"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("does not create output when generation is already cancelled", async () => {
+    const root = await createTemporaryRoot();
+    const destination = path.join(root, "nested", "project");
+    const controller = new AbortController();
+    controller.abort(new Error("test cancellation"));
+
+    await expect(
+      applyGenerationPlan(plan, destination, { signal: controller.signal })
+    ).rejects.toThrow(/interrupted/u);
+    await expect(lstat(path.join(root, "nested"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 
   it.each([

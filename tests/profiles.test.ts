@@ -152,6 +152,29 @@ describe("project profiles", () => {
     );
   });
 
+  it.each([
+    ["library", ["esbuild"]],
+    ["react", ["esbuild"]],
+    ["astro", ["esbuild", "sharp"]],
+    ["workers", ["esbuild", "sharp", "workerd"]],
+  ] as const)(
+    "allows only the lifecycle dependencies used by %s",
+    (profile, dependencies) => {
+      const workspace = createGenerationPlan(
+        [profile],
+        profileRegistry,
+        options
+      ).files.find((file) => file.path === "pnpm-workspace.yaml")?.content;
+      const allowed = [
+        ...(workspace?.matchAll(/^ {2}(?<dependency>[^:\n]+): true$/gmu) ?? []),
+      ].flatMap((match) =>
+        match.groups?.dependency ? [match.groups.dependency] : []
+      );
+
+      expect(allowed).toEqual(dependencies);
+    }
+  );
+
   it("does not expose the internal base as a project profile", () => {
     expect(projectProfileNames).not.toContain("base");
     expect(profileRegistry.has("base")).toBe(true);

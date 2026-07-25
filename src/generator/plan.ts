@@ -3,6 +3,7 @@ import { validateProjectOptions } from "../options.js";
 import { compareCodeUnits } from "./compare.js";
 import { buildPackageJson } from "./package-json.js";
 import { normalizeOutputPath } from "./paths.js";
+import { buildPnpmWorkspace } from "./pnpm-workspace.js";
 import { substitutePlaceholders } from "./substitute.js";
 import type {
   GenerationPlan,
@@ -169,6 +170,39 @@ const validatePortablePathSet = (
   }
 };
 
+export const appendPlannedFile = (
+  plan: GenerationPlan,
+  file: PlannedFile
+): GenerationPlan => {
+  const path = normalizeOutputPath(file.path);
+  const existingOutputs = new Map<string, { readonly path: string }>([
+    ...plan.files.map(
+      (plannedFile) => [plannedFile.path, plannedFile] as const
+    ),
+    ...(plan.symlinks ?? []).map(
+      (plannedSymlink) => [plannedSymlink.path, plannedSymlink] as const
+    ),
+  ]);
+  const existing = existingOutputs.get(path);
+
+  if (existing !== undefined) {
+    throw new Error(`Output collision at "${path}".`);
+  }
+
+  const appendedFile = Object.freeze({ ...file, path });
+  existingOutputs.set(path, appendedFile);
+  validatePortablePathSet(existingOutputs);
+
+  return Object.freeze({
+    ...plan,
+    files: Object.freeze(
+      [...plan.files, appendedFile].toSorted((left, right) =>
+        compareCodeUnits(left.path, right.path)
+      )
+    ),
+  });
+};
+
 const planSymlinks = (
   profiles: readonly Profile[],
   plannedByPath: ReadonlyMap<string, PlannedFile>
@@ -249,6 +283,24 @@ export const createGenerationPlan = (
         path,
       });
     }
+  }
+
+  const pnpmWorkspace = buildPnpmWorkspace(profiles);
+
+  if (pnpmWorkspace !== undefined) {
+    if (plannedByPath.has("pnpm-workspace.yaml")) {
+      throw new Error(
+        'Output collision at "pnpm-workspace.yaml"; use allowedBuildDependencies instead.'
+      );
+    }
+
+    plannedByPath.set("pnpm-workspace.yaml", {
+      content: pnpmWorkspace,
+      mode: 0o644,
+      origin: "pnpm-workspace-reducer",
+      ownership: "managed",
+      path: "pnpm-workspace.yaml",
+    });
   }
 
   const packageJson = buildPackageJson(profiles, options);

@@ -4,11 +4,7 @@ const PACKAGE_NAME_PATTERN =
   /^(?:@[a-z\d](?:[a-z\d._-]*[a-z\d])?\/)?[a-z\d](?:[a-z\d._-]*[a-z\d])?$/u;
 const PROJECT_NAME_PATTERN = /^[a-z\d](?:[a-z\d._-]*[a-z\d])?$/u;
 
-const containsControlCharacter = (value: string): boolean =>
-  [...value].some((character) => {
-    const codePoint = character.codePointAt(0);
-    return codePoint !== undefined && (codePoint <= 31 || codePoint === 127);
-  });
+const CONTROL_OR_FORMATTING_CHARACTER_PATTERN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
 
 export interface ProjectOptions {
   readonly description: string;
@@ -37,8 +33,10 @@ const assertPlainText = (
     );
   }
 
-  if (containsControlCharacter(value)) {
-    throw new Error(`${label} must not contain control characters.`);
+  if (CONTROL_OR_FORMATTING_CHARACTER_PATTERN.test(value)) {
+    throw new Error(
+      `${label} must not contain control or formatting characters.`
+    );
   }
 };
 

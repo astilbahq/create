@@ -11,5 +11,6 @@ Recommended baseline:
 5. Install and enable Renovate for `astilbahq/create`; the configuration does nothing until the GitHub App can access the repository.
 6. Set the default workflow token to read-only. Individual workflows declare the narrower write permissions they require.
 7. Create a protected `npm` environment and configure npm trusted publishing for `astilbahq/create`, `.github/workflows/release.yml`, and that environment. Do not add a long-lived npm token.
+8. Protect `v*` tags against updates and deletion. Publish only through the GitHub Release workflow described in [`releasing.md`](releasing.md).
 
 CodeQL and dependency review run only while the repository is public, avoiding an accidental GitHub Advanced Security dependency if visibility changes later.

@@ -23,28 +23,28 @@ const recipes: readonly ProjectRecipe[] = [
     id: "typescript-library",
     label: "TypeScript library",
     profile: "library",
-    version: 1,
+    version: 2,
   },
   {
     description: "A client-rendered React application built with Vite.",
     id: "react-vite-spa",
     label: "React + Vite application",
     profile: "react",
-    version: 1,
+    version: 2,
   },
   {
     description: "A statically rendered Astro site.",
     id: "astro-static-site",
     label: "Astro static site",
     profile: "astro",
-    version: 1,
+    version: 2,
   },
   {
     description: "A TypeScript service running on Cloudflare Workers.",
     id: "cloudflare-worker-service",
     label: "Cloudflare Worker service",
     profile: "workers",
-    version: 1,
+    version: 2,
   },
 ];
 

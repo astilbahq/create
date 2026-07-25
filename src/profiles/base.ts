@@ -29,6 +29,7 @@ SOFTWARE.
 `;
 
 export const baseProfile: Profile = {
+  allowedBuildDependencies: ["esbuild"],
   files: [
     ...githubFiles,
     file(
@@ -142,26 +143,6 @@ export default defineConfig({
   extends: [core],
   ignorePatterns: [...(core.ignorePatterns ?? []), "dist/**"],
 });
-`
-    ),
-    file(
-      "pnpm-workspace.yaml",
-      `
-packages: []
-
-allowBuilds:
-  esbuild: true
-  sharp: true
-  workerd: true
-
-minimumReleaseAge: 4320
-
-# Exact security exception for GHSA-mh99-v99m-4gvg.
-minimumReleaseAgeExclude:
-  - brace-expansion@5.0.8
-
-overrides:
-  "brace-expansion@>=5.0.0 <5.0.8": 5.0.8
 `
     ),
   ],

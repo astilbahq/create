@@ -30,6 +30,7 @@ export interface PackageJsonFragment {
 }
 
 export interface Profile {
+  readonly allowedBuildDependencies?: readonly string[];
   readonly conflicts?: readonly string[];
   readonly files?: readonly TextFileDeclaration[];
   readonly name: string;

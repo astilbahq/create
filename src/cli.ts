@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 
 import * as prompts from "@clack/prompts";
 
+import { CreateAstilbaError, normalizeCreateAstilbaError } from "./errors.js";
 import { applyGenerationPlan } from "./generator/apply.js";
 import { assertSafeDestinationArgument } from "./generator/paths.js";
 import type { GenerationPlan } from "./generator/types.js";
@@ -53,7 +54,7 @@ Options:
 
 export const CLI_OUTPUT_SCHEMA_VERSION = 1;
 
-export class CliCancelledError extends Error {
+class CliCancelledError extends Error {
   public constructor() {
     super("Project creation was cancelled.");
     this.name = "CliCancelledError";
@@ -240,9 +241,11 @@ const inferProjectName = (destinationArgument: string): string => {
 };
 
 const collectInteractiveInput = async (
-  input: PartialCreateInput
+  input: PartialCreateInput,
+  signal?: AbortSignal
 ): Promise<PartialCreateInput> => {
   prompts.intro("Astilba Create");
+  const signalOptions = signal === undefined ? {} : { signal };
 
   const destinationArgument =
     input.destinationArgument ??
@@ -251,6 +254,7 @@ const collectInteractiveInput = async (
         defaultValue: "my-project",
         message: "Where should we create your project?",
         placeholder: "my-project",
+        ...signalOptions,
         validate: (value) => {
           try {
             assertSafeDestinationArgument(value ?? "");
@@ -268,6 +272,7 @@ const collectInteractiveInput = async (
     requirePromptValue(
       await prompts.select<ProjectRecipeId>({
         message: "Choose a starting point",
+        ...signalOptions,
         options: projectRecipeIds.map((recipeId) => {
           const candidate = getProjectRecipe(recipeId);
           return {
@@ -284,6 +289,7 @@ const collectInteractiveInput = async (
       await prompts.text({
         message: "Project description",
         placeholder: "A useful TypeScript project.",
+        ...signalOptions,
         validate: (value) =>
           (value ?? "").trim().length === 0
             ? "Enter a project description."
@@ -297,6 +303,7 @@ const collectInteractiveInput = async (
         defaultValue: inferredName,
         message: "npm package name",
         placeholder: inferredName,
+        ...signalOptions,
       })
     );
   const githubOwner =
@@ -305,6 +312,7 @@ const collectInteractiveInput = async (
       await prompts.text({
         message: "GitHub owner",
         placeholder: "your-account",
+        ...signalOptions,
         validate: (value) =>
           (value ?? "").trim().length === 0
             ? "Enter a GitHub account."
@@ -317,6 +325,7 @@ const collectInteractiveInput = async (
       await prompts.confirm({
         initialValue: true,
         message: "Initialize a Git repository?",
+        ...signalOptions,
       })
     );
   const installDependencies =
@@ -325,6 +334,7 @@ const collectInteractiveInput = async (
       await prompts.confirm({
         initialValue: true,
         message: "Install dependencies?",
+        ...signalOptions,
       })
     );
 
@@ -333,6 +343,7 @@ const collectInteractiveInput = async (
       await prompts.confirm({
         initialValue: true,
         message: `Create ${inferredName} from ${getProjectRecipe(recipe).label}?`,
+        ...signalOptions,
       })
     );
 
@@ -372,15 +383,24 @@ export const resolveScaffoldRequest = async (
   {
     cwd = process.cwd(),
     interactive = process.stdin.isTTY === true && process.stdout.isTTY === true,
-  }: { readonly cwd?: string; readonly interactive?: boolean } = {}
+    signal,
+  }: {
+    readonly cwd?: string;
+    readonly interactive?: boolean;
+    readonly signal?: AbortSignal;
+  } = {}
 ): Promise<ScaffoldRequest> => {
+  if (signal?.aborted) {
+    throw signal.reason;
+  }
+
   let resolvedInput: PartialCreateInput | undefined = input;
 
   if (!hasRequiredInput(input)) {
     resolvedInput =
       input.json || !interactive
         ? undefined
-        : await collectInteractiveInput(input);
+        : await collectInteractiveInput(input, signal);
   }
 
   if (!resolvedInput || !hasRequiredInput(resolvedInput)) {
@@ -413,19 +433,77 @@ export const resolveScaffoldRequest = async (
 
 export const scaffoldProject = async (
   request: ScaffoldRequest,
-  forbiddenRoots: readonly string[] = []
+  forbiddenRoots: readonly string[] = [],
+  signal?: AbortSignal
 ): Promise<ScaffoldResult> => {
-  const plan = createProjectGenerationPlan(request.recipe, request.options);
+  if (signal?.aborted) {
+    throw new CreateAstilbaError("Project creation was interrupted.", {
+      cause: signal.reason,
+      code: "CANCELLED",
+      destination: request.destination,
+      exitCode: 130,
+      phase: "input",
+      projectCreated: false,
+    });
+  }
+  let plan: GenerationPlan;
 
-  if (!request.dryRun) {
-    await applyGenerationPlan(plan, request.destination, {
-      forbiddenRoots,
-      initializeGit: request.initializeGit,
+  try {
+    plan = createProjectGenerationPlan(request.recipe, request.options);
+
+    if (!request.dryRun) {
+      await applyGenerationPlan(plan, request.destination, {
+        forbiddenRoots,
+        initializeGit: request.initializeGit,
+        ...(signal === undefined ? {} : { signal }),
+      });
+    }
+  } catch (error: unknown) {
+    if (signal?.aborted) {
+      throw new CreateAstilbaError("Project creation was interrupted.", {
+        cause: signal.reason,
+        code: "CANCELLED",
+        destination: request.destination,
+        exitCode: 130,
+        phase: "generation",
+        projectCreated: false,
+      });
+    }
+
+    throw normalizeCreateAstilbaError(error, {
+      code: "GENERATION_FAILED",
+      destination: request.destination,
+      phase: "generation",
+      projectCreated: false,
+    });
+  }
+
+  if (!request.dryRun && signal?.aborted) {
+    throw new CreateAstilbaError("Project creation was interrupted.", {
+      cause: signal.reason,
+      code: "CANCELLED",
+      destination: request.destination,
+      exitCode: 130,
+      phase: "generation",
+      projectCreated: true,
     });
   }
 
   if (request.installDependencies && !request.dryRun) {
-    await installProjectDependencies(request.destination);
+    if (signal?.aborted) {
+      throw new CreateAstilbaError("Project creation was interrupted.", {
+        cause: signal.reason,
+        code: "CANCELLED",
+        destination: request.destination,
+        exitCode: 130,
+        phase: "installation",
+        projectCreated: true,
+      });
+    }
+    await installProjectDependencies(
+      request.destination,
+      signal === undefined ? {} : { signal }
+    );
   }
 
   return {
@@ -451,10 +529,57 @@ const writeJsonResult = (result: ScaffoldResult, dryRun: boolean): void => {
   );
 };
 
+const parseCliCommand = (arguments_: readonly string[]): ParsedCommand => {
+  try {
+    return parseCliArguments(arguments_);
+  } catch (error: unknown) {
+    throw normalizeCreateAstilbaError(error, {
+      code: "INVALID_INPUT",
+      phase: "input",
+      projectCreated: false,
+    });
+  }
+};
+
+const resolveCliRequest = async (
+  input: PartialCreateInput,
+  signal?: AbortSignal
+): Promise<ScaffoldRequest> => {
+  try {
+    return await resolveScaffoldRequest(
+      input,
+      signal === undefined ? {} : { signal }
+    );
+  } catch (error: unknown) {
+    if (signal?.aborted || error instanceof CliCancelledError) {
+      const cause = signal?.reason ?? error;
+      throw new CreateAstilbaError(
+        cause instanceof Error
+          ? cause.message
+          : "Project creation was interrupted.",
+        {
+          cause,
+          code: "CANCELLED",
+          exitCode: 130,
+          phase: "input",
+          projectCreated: false,
+        }
+      );
+    }
+
+    throw normalizeCreateAstilbaError(error, {
+      code: "INVALID_INPUT",
+      phase: "input",
+      projectCreated: false,
+    });
+  }
+};
+
 export const runCli = async (
-  arguments_: readonly string[] = process.argv.slice(2)
+  arguments_: readonly string[] = process.argv.slice(2),
+  options: { readonly signal?: AbortSignal } = {}
 ): Promise<void> => {
-  const parsed = parseCliArguments(arguments_);
+  const parsed = parseCliCommand(arguments_);
 
   if (parsed.command === "help") {
     process.stdout.write(
@@ -484,7 +609,7 @@ export const runCli = async (
     return;
   }
 
-  const request = await resolveScaffoldRequest(parsed.input);
+  const request = await resolveCliRequest(parsed.input, options.signal);
   const spinner =
     request.json || process.stdout.isTTY !== true
       ? undefined
@@ -505,7 +630,7 @@ export const runCli = async (
   let result: ScaffoldResult;
 
   try {
-    result = await scaffoldProject(request);
+    result = await scaffoldProject(request, [], options.signal);
     spinner?.stop(completionMessage);
   } catch (error: unknown) {
     spinner?.stop("Project creation needs attention");

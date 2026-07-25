@@ -29,6 +29,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Install pnpm
@@ -45,6 +46,12 @@ jobs:
 
       - name: Verify foundation
         run: pnpm verify
+
+      - name: Preserve published recipe contracts
+        if: github.event_name == 'pull_request'
+        env:
+          RECIPE_BASE_REF: origin/${{ github.base_ref }}
+        run: pnpm recipes:verify-history
 
   consumers:
     name: Consumer (${{ matrix.recipe }}, Node ${{ matrix.node.label }})
@@ -108,7 +115,40 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify the published manifest schema
+        run: |
+          curl --fail --location --retry 3 --silent --show-error \
+            https://astilba.com/schemas/create/v1.json \
+            --output "$RUNNER_TEMP/create-project-v1.json"
+          pnpm exec tsx scripts/verify-published-schema.ts \
+            "$RUNNER_TEMP/create-project-v1.json"
+
       - name: Verify packed package
+        run: pnpm test:package
+
+  package-minimum:
+    name: Package artifact (Node minimum)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          cache: pnpm
+          node-version: "22.18.0"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify packed package at the Node.js floor
         run: pnpm test:package
 
   windows-package:
@@ -132,6 +172,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Verify Windows process-tree cancellation
+        run: pnpm exec vitest run tests/process-cancellation.test.ts
 
       - name: Build and pack
         shell: pwsh

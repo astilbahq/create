@@ -3,10 +3,15 @@ import { setImmediate as waitForImmediate } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 
 import {
+  appendPlannedFile,
   createGenerationPlan,
   createProfileRegistry,
 } from "../src/generator/plan.js";
-import type { Profile } from "../src/generator/types.js";
+import type {
+  GenerationPlan,
+  PlannedFile,
+  Profile,
+} from "../src/generator/types.js";
 import type { ProjectOptions } from "../src/options.js";
 
 const options: ProjectOptions = {
@@ -54,6 +59,15 @@ const registry = new Map<string, Profile>([
     },
   ],
 ]);
+
+const appendFile = (plan: GenerationPlan, path: string): GenerationPlan =>
+  appendPlannedFile(plan, {
+    content: "",
+    mode: 0o644,
+    origin: "test",
+    ownership: "managed",
+    path,
+  } satisfies PlannedFile);
 
 describe("createGenerationPlan", () => {
   it("rejects duplicate profile names before building the registry", () => {
@@ -107,6 +121,35 @@ describe("createGenerationPlan", () => {
     expect(() =>
       createGenerationPlan(["collision"], collisionRegistry, options)
     ).toThrow(/Output collision/u);
+  });
+
+  it("rejects appended files that collide with existing portable paths", () => {
+    const plan = createGenerationPlan(["base"], registry, options);
+
+    expect(() => appendFile(plan, "readme.md")).toThrow(
+      /case-insensitive filesystems/iu
+    );
+    expect(() => appendFile(plan, "README.md/child")).toThrow(
+      /blocks descendant path/iu
+    );
+  });
+
+  it("rejects appended files that collide with symlinks", () => {
+    const symlinkRegistry = new Map<string, Profile>([
+      [
+        "base",
+        {
+          files: [{ content: "# Instructions\n", path: "AGENTS.md" }],
+          name: "base",
+          symlinks: [{ path: "CLAUDE.md", targetPath: "AGENTS.md" }],
+        },
+      ],
+    ]);
+    const plan = createGenerationPlan(["base"], symlinkRegistry, options);
+
+    expect(() => appendFile(plan, "claude.md")).toThrow(
+      /case-insensitive filesystems/iu
+    );
   });
 
   it("plans explicit symlinks to generated files", () => {

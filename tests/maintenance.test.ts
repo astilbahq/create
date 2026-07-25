@@ -7,6 +7,7 @@ import { CREATE_ASTILBA_VERSION } from "../src/manifest.js";
 import { dependencyVersions } from "../src/profiles/dependency-versions.js";
 import { githubFiles } from "../src/profiles/github-files.js";
 import { toolchainVersions } from "../src/profiles/toolchain-versions.js";
+import { projectRecipeIds } from "../src/recipes.js";
 
 interface RegexManager {
   readonly datasourceTemplate?: string;
@@ -374,7 +375,7 @@ describe("maintenance configuration", () => {
 
     expect(packageJson).toMatchObject({
       bin: { "create-astilba": "./dist/bin.js" },
-      files: ["dist"],
+      files: ["dist", "recipes", "schemas"],
       name: "create-astilba",
       version: CREATE_ASTILBA_VERSION,
     });
@@ -402,6 +403,55 @@ describe("maintenance configuration", () => {
     expect(rootWorkflow).toContain(`node-version: \${{ matrix.node.version }}`);
     expect(generatedWorkflow).toContain(minimumLane);
     expect(generatedWorkflow).toContain(currentLane);
+  });
+
+  it("keeps the consumer matrix aligned with the recipe catalogue", async () => {
+    const workflow = await readFile(
+      path.join(root, ".github/workflows/verification.yml"),
+      "utf-8"
+    );
+    const recipeMatrix = workflow.match(
+      / {8}recipe:\n(?<recipes>(?:          - [a-z\d-]+\n)+)/u
+    );
+    const recipeLines = recipeMatrix?.groups?.recipes;
+    const recipes =
+      recipeLines
+        ?.trim()
+        .split("\n")
+        .map((line) => line.replace(/^\s*-\s*/u, "")) ?? [];
+
+    expect(recipes).toEqual([
+      "astro-static-site",
+      "cloudflare-worker-service",
+      "react-vite-spa",
+      "typescript-library",
+    ]);
+    expect(new Set(recipes)).toEqual(new Set(projectRecipeIds));
+  });
+
+  it("executes the packed CLI at the declared Node.js floor", async () => {
+    const workflow = await readFile(
+      path.join(root, ".github/workflows/verification.yml"),
+      "utf-8"
+    );
+
+    expect(workflow).toContain("name: Package artifact");
+    expect(workflow).toContain("name: Package artifact (Node minimum)");
+    expect(workflow).toContain(
+      `node-version: "${toolchainVersions.nodeMinimum}"`
+    );
+    expect(workflow).toContain(
+      "pnpm exec vitest run tests/process-cancellation.test.ts"
+    );
+  });
+
+  it("scans canonical recipe lockfiles for known vulnerabilities", async () => {
+    const workflow = await readFile(
+      path.join(root, ".github/workflows/osv-scanner.yml"),
+      "utf-8"
+    );
+
+    expect(workflow).toContain("args: scan source --recursive .");
   });
 
   it("lints and audits emitted workflows in CI", async () => {

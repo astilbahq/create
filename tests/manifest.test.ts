@@ -8,7 +8,7 @@ import {
   PROJECT_MANIFEST_PATH,
   PROJECT_MANIFEST_SCHEMA,
 } from "../src/manifest.js";
-import { projectRecipeIds } from "../src/recipes.js";
+import { getProjectRecipe, projectRecipeIds } from "../src/recipes.js";
 
 const options = {
   description: "A deterministic generated project.",
@@ -71,7 +71,7 @@ describe("project manifest", () => {
           name: "create-astilba",
           version: CREATE_ASTILBA_VERSION,
         },
-        recipe: { id: recipe, version: 1 },
+        recipe: { id: recipe, version: getProjectRecipe(recipe).version },
         schemaVersion: 1,
       });
 
@@ -124,6 +124,9 @@ describe("project manifest", () => {
     expect(manifest.ownership.seeded).toContain("src/main.tsx");
     expect(manifest.ownership.managed.map((entry) => entry.path)).toContain(
       "vite.config.ts"
+    );
+    expect(manifest.ownership.managed.map((entry) => entry.path)).toContain(
+      "pnpm-lock.yaml"
     );
   });
 

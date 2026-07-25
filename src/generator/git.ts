@@ -43,7 +43,8 @@ const assertInitializedRepository = async (root: string): Promise<void> => {
 
 export const initializeGitRepository = async (
   root: string,
-  ambientEnvironment: NodeJS.ProcessEnv = process.env
+  ambientEnvironment: NodeJS.ProcessEnv = process.env,
+  signal?: AbortSignal
 ): Promise<void> => {
   const templateDirectory = await mkdtemp(
     path.join(path.dirname(root), ".astilba-create-git-template-")
@@ -64,6 +65,7 @@ export const initializeGitRepository = async (
           ambientEnvironment,
           templateDirectory
         ),
+        signal,
       }
     );
     await assertInitializedRepository(root);

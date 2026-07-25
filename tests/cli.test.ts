@@ -1,3 +1,4 @@
+import { once } from "node:events";
 import {
   lstat,
   mkdtemp,
@@ -8,6 +9,9 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
+import type { Writable } from "node:stream";
+import { setImmediate as waitForImmediate } from "node:timers/promises";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -15,10 +19,12 @@ import {
   isJsonOutputRequested,
   parseCliArguments,
   resolveScaffoldRequest,
+  runCli,
   scaffoldProject,
 } from "../src/cli.js";
 import type { CreateAstilbaError } from "../src/errors.js";
 import { PROJECT_MANIFEST_PATH } from "../src/manifest.js";
+import type { CliPromptId, CliTerminal } from "../src/terminal.js";
 
 const temporaryRoots: string[] = [];
 
@@ -40,7 +46,341 @@ const completeArguments = [
   "example",
 ] as const;
 
+interface RecordingTerminal {
+  readonly events: string[];
+  readonly terminal: CliTerminal;
+}
+
+const createRecordingTerminal = (
+  values: Partial<Record<CliPromptId, boolean | string>> = {}
+): RecordingTerminal => {
+  const events: string[] = [];
+  const answers: Record<CliPromptId, boolean | string> = {
+    "confirm-creation": true,
+    description: "An example project.",
+    destination: "my-project",
+    "github-owner": "example",
+    "initialize-git": true,
+    "install-dependencies": true,
+    "package-name": "my-project",
+    recipe: "typescript-library",
+    ...values,
+  };
+  const readAnswer = (id: CliPromptId): boolean | string => {
+    const answer = answers[id];
+
+    if (answer === undefined) {
+      throw new Error(`No recorded answer for ${id}.`);
+    }
+
+    return answer;
+  };
+
+  return {
+    events,
+    terminal: {
+      cancel: (message) => {
+        events.push(`cancel:${message}`);
+      },
+      confirm: (id) => {
+        events.push(`confirm:${id}`);
+        const answer = readAnswer(id);
+
+        if (typeof answer !== "boolean") {
+          throw new TypeError(`Expected a boolean answer for ${id}.`);
+        }
+
+        return Promise.resolve(answer);
+      },
+      intro: (message) => {
+        events.push(`intro:${message}`);
+      },
+      outro: (message) => {
+        events.push(`outro:${message}`);
+      },
+      select: (id, options) => {
+        events.push(`select:${id}`);
+        const answer = readAnswer(id);
+
+        if (
+          typeof answer !== "string" ||
+          !options.options.some((option) => option.value === answer)
+        ) {
+          throw new TypeError(`Expected a listed option for ${id}.`);
+        }
+
+        return Promise.resolve(answer);
+      },
+      spinner: () => ({
+        start: (message) => {
+          events.push(`spinner:start:${message}`);
+        },
+        stop: (message) => {
+          events.push(`spinner:stop:${message}`);
+        },
+      }),
+      text: (id) => {
+        events.push(`text:${id}`);
+        const answer = readAnswer(id);
+
+        if (typeof answer !== "string") {
+          throw new TypeError(`Expected a text answer for ${id}.`);
+        }
+
+        return Promise.resolve(answer);
+      },
+    },
+  };
+};
+
+const createTextOutput = (): {
+  readonly read: () => string;
+  readonly stream: Writable;
+} => {
+  let output = "";
+  const stream = new PassThrough();
+  stream.on("data", (chunk: Buffer) => {
+    output += chunk.toString("utf-8");
+  });
+
+  return {
+    read: () => output,
+    stream,
+  };
+};
+
 describe("Astilba Create CLI", () => {
+  it("does not prompt for a complete invocation on a TTY", async () => {
+    const recording = createRecordingTerminal();
+    const parsed = parseCliArguments(completeArguments);
+
+    if (parsed.command !== "create") {
+      throw new Error("Expected a create command.");
+    }
+
+    await expect(
+      resolveScaffoldRequest(parsed.input, {
+        interactive: true,
+        terminal: recording.terminal,
+      })
+    ).resolves.toMatchObject({
+      initializeGit: true,
+      installDependencies: false,
+    });
+    expect(recording.events).toEqual([]);
+  });
+
+  it("prompts only for missing values in a partial TTY invocation", async () => {
+    const recording = createRecordingTerminal();
+    const parsed = parseCliArguments([
+      "my-project",
+      "--recipe",
+      "typescript-library",
+      "--package-name",
+      "@example/project",
+      "--git",
+      "--install",
+      "--yes",
+    ]);
+
+    if (parsed.command !== "create") {
+      throw new Error("Expected a create command.");
+    }
+
+    await expect(
+      resolveScaffoldRequest(parsed.input, {
+        interactive: true,
+        terminal: recording.terminal,
+      })
+    ).resolves.toMatchObject({
+      initializeGit: true,
+      installDependencies: true,
+      options: {
+        description: "An example project.",
+        githubOwner: "example",
+        packageName: "@example/project",
+      },
+    });
+    expect(recording.events).toEqual([
+      "intro:Astilba Create",
+      "text:description",
+      "text:github-owner",
+    ]);
+  });
+
+  it("uses --yes only to skip the final confirmation", async () => {
+    const recording = createRecordingTerminal();
+    const parsed = parseCliArguments(["--yes"]);
+
+    if (parsed.command !== "create") {
+      throw new Error("Expected a create command.");
+    }
+
+    await expect(
+      resolveScaffoldRequest(parsed.input, {
+        interactive: true,
+        terminal: recording.terminal,
+      })
+    ).resolves.toMatchObject({
+      initializeGit: true,
+      installDependencies: true,
+    });
+
+    expect(recording.events).toEqual([
+      "intro:Astilba Create",
+      "text:destination",
+      "select:recipe",
+      "text:description",
+      "text:package-name",
+      "text:github-owner",
+      "confirm:initialize-git",
+      "confirm:install-dependencies",
+    ]);
+  });
+
+  it("keeps JSON output isolated from terminal rendering", async () => {
+    const root = await mkdtemp(
+      path.join(await realpath(tmpdir()), "create-astilba-json-")
+    );
+    temporaryRoots.push(root);
+    const recording = createRecordingTerminal();
+    const output = createTextOutput();
+
+    await runCli([...completeArguments, "--dry-run", "--json"], {
+      cwd: root,
+      interactive: true,
+      output: output.stream,
+      terminal: recording.terminal,
+    });
+
+    const lines = output.read().trim().split("\n");
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0] ?? "")).toMatchObject({
+      action: "plan",
+      ok: true,
+      schemaVersion: 1,
+    });
+    expect(recording.events).toEqual([]);
+  });
+
+  it("keeps non-interactive output isolated from terminal rendering", async () => {
+    const root = await mkdtemp(
+      path.join(await realpath(tmpdir()), "create-astilba-output-")
+    );
+    temporaryRoots.push(root);
+    const recording = createRecordingTerminal();
+    const output = createTextOutput();
+
+    await runCli([...completeArguments, "--dry-run"], {
+      cwd: root,
+      interactive: false,
+      output: output.stream,
+      terminal: recording.terminal,
+    });
+
+    expect(output.read()).toMatch(/^Planned TypeScript library at /u);
+    expect(recording.events).toEqual([]);
+  });
+
+  it("keeps Clack rendering when stdout alone is interactive", async () => {
+    const root = await mkdtemp(
+      path.join(await realpath(tmpdir()), "create-astilba-mixed-tty-")
+    );
+    temporaryRoots.push(root);
+    const input = new PassThrough();
+    const output = createTextOutput();
+    Object.defineProperty(output.stream, "isTTY", { value: true });
+    const recording = createRecordingTerminal();
+
+    await runCli([...completeArguments, "--dry-run"], {
+      cwd: root,
+      input,
+      output: output.stream,
+      terminal: recording.terminal,
+    });
+
+    expect(recording.events).toEqual([
+      "spinner:start:Planning project",
+      "spinner:stop:Project plan ready",
+      expect.stringMatching(/^outro:Planned TypeScript library at /u),
+    ]);
+    expect(output.read()).toBe("");
+  });
+
+  it("propagates cancellation into an injected pending prompt", async () => {
+    const controller = new AbortController();
+    const output = createTextOutput();
+    const recording = createRecordingTerminal();
+    const terminal: CliTerminal = {
+      ...recording.terminal,
+      text: async (id, _options, signal) => {
+        recording.events.push(`text:${id}`);
+
+        if (!signal) {
+          throw new Error("Expected the CLI abort signal.");
+        }
+
+        if (!signal.aborted) {
+          await once(signal, "abort");
+        }
+
+        throw signal.reason;
+      },
+    };
+    const result = runCli([], {
+      interactive: true,
+      output: output.stream,
+      signal: controller.signal,
+      terminal,
+    });
+    await waitForImmediate();
+    controller.abort(new Error("test cancellation"));
+
+    await expect(result).rejects.toMatchObject({
+      code: "CANCELLED",
+      exitCode: 130,
+      phase: "input",
+      projectCreated: false,
+    } satisfies Partial<CreateAstilbaError>);
+    expect(recording.events).toEqual([
+      "intro:Astilba Create",
+      "text:destination",
+    ]);
+  });
+
+  it("preserves created-project truth when terminal rendering fails", async () => {
+    const root = await mkdtemp(
+      path.join(await realpath(tmpdir()), "create-astilba-rendering-")
+    );
+    temporaryRoots.push(root);
+    const destination = path.join(root, "my-project");
+    const recording = createRecordingTerminal();
+    const terminal: CliTerminal = {
+      ...recording.terminal,
+      spinner: () => ({
+        start: () => {},
+        stop: () => {
+          throw new Error("rendering failed");
+        },
+      }),
+    };
+
+    await expect(
+      runCli([...completeArguments, "--no-git"], {
+        cwd: root,
+        interactive: true,
+        terminal,
+      })
+    ).rejects.toMatchObject({
+      code: "UNEXPECTED_ERROR",
+      destination,
+      phase: "unknown",
+      projectCreated: true,
+    } satisfies Partial<CreateAstilbaError>);
+    const destinationStats = await lstat(destination);
+    expect(destinationStats.isDirectory()).toBe(true);
+  });
+
   it("resolves destinations from the caller's working directory", async () => {
     const parsed = parseCliArguments(completeArguments);
 

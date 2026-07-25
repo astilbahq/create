@@ -1,7 +1,6 @@
 import path from "node:path";
+import type { Readable, Writable } from "node:stream";
 import { parseArgs } from "node:util";
-
-import * as prompts from "@clack/prompts";
 
 import { CreateAstilbaError, normalizeCreateAstilbaError } from "./errors.js";
 import { applyGenerationPlan } from "./generator/apply.js";
@@ -21,6 +20,8 @@ import {
   recipeRegistry,
 } from "./recipes.js";
 import type { ProjectRecipeId } from "./recipes.js";
+import { CliPromptCancelledError, createClackTerminal } from "./terminal.js";
+import type { CliTerminal } from "./terminal.js";
 
 const HELP = `
 Create a project with Astilba's TypeScript foundations.
@@ -53,13 +54,6 @@ Options:
 `;
 
 export const CLI_OUTPUT_SCHEMA_VERSION = 1;
-
-class CliCancelledError extends Error {
-  public constructor() {
-    super("Project creation was cancelled.");
-    this.name = "CliCancelledError";
-  }
-}
 
 interface PartialCreateInput {
   readonly description?: string;
@@ -203,25 +197,6 @@ export const parseCliArguments = (
   };
 };
 
-const requirePromptValue = <Value>(value: Value | symbol): Value => {
-  if (prompts.isCancel(value)) {
-    prompts.cancel("Project creation cancelled.");
-    throw new CliCancelledError();
-  }
-
-  return value;
-};
-
-const requirePromptString = (value: string | symbol | undefined): string => {
-  const resolved = requirePromptValue(value);
-
-  if (typeof resolved !== "string") {
-    throw new TypeError("The prompt did not return a text value.");
-  }
-
-  return resolved;
-};
-
 const inferProjectName = (destinationArgument: string): string => {
   const inferredName = path
     .basename(destinationArgument)
@@ -242,19 +217,19 @@ const inferProjectName = (destinationArgument: string): string => {
 
 const collectInteractiveInput = async (
   input: PartialCreateInput,
+  terminal: CliTerminal,
   signal?: AbortSignal
 ): Promise<PartialCreateInput> => {
-  prompts.intro("Astilba Create");
-  const signalOptions = signal === undefined ? {} : { signal };
+  terminal.intro("Astilba Create", signal);
 
   const destinationArgument =
     input.destinationArgument ??
-    requirePromptString(
-      await prompts.text({
+    (await terminal.text(
+      "destination",
+      {
         defaultValue: "my-project",
         message: "Where should we create your project?",
         placeholder: "my-project",
-        ...signalOptions,
         validate: (value) => {
           try {
             assertSafeDestinationArgument(value ?? "");
@@ -263,16 +238,17 @@ const collectInteractiveInput = async (
             return error instanceof Error ? error.message : String(error);
           }
         },
-      })
-    );
+      },
+      signal
+    ));
   assertSafeDestinationArgument(destinationArgument);
   const inferredName = inferProjectName(destinationArgument);
-  const recipe =
+  const recipeSelection =
     input.recipe ??
-    requirePromptValue(
-      await prompts.select<ProjectRecipeId>({
+    (await terminal.select(
+      "recipe",
+      {
         message: "Choose a starting point",
-        ...signalOptions,
         options: projectRecipeIds.map((recipeId) => {
           const candidate = getProjectRecipe(recipeId);
           return {
@@ -281,75 +257,86 @@ const collectInteractiveInput = async (
             value: candidate.id,
           };
         }),
-      })
-    );
+      },
+      signal
+    ));
+  if (!isProjectRecipeId(recipeSelection)) {
+    throw new TypeError("The prompt returned an unknown project recipe.");
+  }
+  const recipe = recipeSelection;
   const description =
     input.description ??
-    requirePromptString(
-      await prompts.text({
+    (await terminal.text(
+      "description",
+      {
         message: "Project description",
         placeholder: "A useful TypeScript project.",
-        ...signalOptions,
         validate: (value) =>
           (value ?? "").trim().length === 0
             ? "Enter a project description."
             : undefined,
-      })
-    );
+      },
+      signal
+    ));
   const packageName =
     input.packageName ??
-    requirePromptString(
-      await prompts.text({
+    (await terminal.text(
+      "package-name",
+      {
         defaultValue: inferredName,
         message: "npm package name",
         placeholder: inferredName,
-        ...signalOptions,
-      })
-    );
+      },
+      signal
+    ));
   const githubOwner =
     input.githubOwner ??
-    requirePromptString(
-      await prompts.text({
+    (await terminal.text(
+      "github-owner",
+      {
         message: "GitHub owner",
         placeholder: "your-account",
-        ...signalOptions,
         validate: (value) =>
           (value ?? "").trim().length === 0
             ? "Enter a GitHub account."
             : undefined,
-      })
-    );
+      },
+      signal
+    ));
   const initializeGit =
     input.initializeGit ??
-    requirePromptValue(
-      await prompts.confirm({
+    (await terminal.confirm(
+      "initialize-git",
+      {
         initialValue: true,
         message: "Initialize a Git repository?",
-        ...signalOptions,
-      })
-    );
+      },
+      signal
+    ));
   const installDependencies =
     input.installDependencies ??
-    requirePromptValue(
-      await prompts.confirm({
+    (await terminal.confirm(
+      "install-dependencies",
+      {
         initialValue: true,
         message: "Install dependencies?",
-        ...signalOptions,
-      })
-    );
+      },
+      signal
+    ));
 
   if (!input.yes) {
-    const confirmed = requirePromptValue(
-      await prompts.confirm({
+    const confirmed = await terminal.confirm(
+      "confirm-creation",
+      {
         initialValue: true,
         message: `Create ${inferredName} from ${getProjectRecipe(recipe).label}?`,
-        ...signalOptions,
-      })
+      },
+      signal
     );
 
     if (!confirmed) {
-      prompts.cancel("Project creation cancelled.");
-      throw new CliCancelledError();
+      terminal.cancel("Project creation cancelled.", signal);
+      throw new CliPromptCancelledError();
     }
   }
 
@@ -384,10 +371,12 @@ export const resolveScaffoldRequest = async (
     cwd = process.cwd(),
     interactive = process.stdin.isTTY === true && process.stdout.isTTY === true,
     signal,
+    terminal,
   }: {
     readonly cwd?: string;
     readonly interactive?: boolean;
     readonly signal?: AbortSignal;
+    readonly terminal?: CliTerminal;
   } = {}
 ): Promise<ScaffoldRequest> => {
   if (signal?.aborted) {
@@ -400,7 +389,16 @@ export const resolveScaffoldRequest = async (
     resolvedInput =
       input.json || !interactive
         ? undefined
-        : await collectInteractiveInput(input, signal);
+        : await collectInteractiveInput(
+            input,
+            terminal ??
+              createClackTerminal({
+                input: process.stdin,
+                output: process.stdout,
+                ...(signal === undefined ? {} : { signal }),
+              }),
+            signal
+          );
   }
 
   if (!resolvedInput || !hasRequiredInput(resolvedInput)) {
@@ -514,8 +512,12 @@ export const scaffoldProject = async (
   };
 };
 
-const writeJsonResult = (result: ScaffoldResult, dryRun: boolean): void => {
-  process.stdout.write(
+const writeJsonResult = (
+  result: ScaffoldResult,
+  dryRun: boolean,
+  output: Writable
+): void => {
+  output.write(
     `${JSON.stringify({
       action: dryRun ? "plan" : "create",
       destination: result.destination,
@@ -543,15 +545,27 @@ const parseCliCommand = (arguments_: readonly string[]): ParsedCommand => {
 
 const resolveCliRequest = async (
   input: PartialCreateInput,
-  signal?: AbortSignal
+  {
+    cwd,
+    interactive,
+    signal,
+    terminal,
+  }: {
+    readonly cwd: string;
+    readonly interactive: boolean;
+    readonly signal?: AbortSignal;
+    readonly terminal: CliTerminal;
+  }
 ): Promise<ScaffoldRequest> => {
   try {
-    return await resolveScaffoldRequest(
-      input,
-      signal === undefined ? {} : { signal }
-    );
+    return await resolveScaffoldRequest(input, {
+      cwd,
+      interactive,
+      terminal,
+      ...(signal === undefined ? {} : { signal }),
+    });
   } catch (error: unknown) {
-    if (signal?.aborted || error instanceof CliCancelledError) {
+    if (signal?.aborted || error instanceof CliPromptCancelledError) {
       const cause = signal?.reason ?? error;
       throw new CreateAstilbaError(
         cause instanceof Error
@@ -575,14 +589,99 @@ const resolveCliRequest = async (
   }
 };
 
+interface RunCliOptions {
+  readonly cwd?: string;
+  readonly input?: Readable;
+  readonly interactive?: boolean;
+  readonly output?: Writable;
+  readonly signal?: AbortSignal;
+  readonly terminal?: CliTerminal;
+}
+
+interface CliRuntime {
+  readonly canPrompt: boolean;
+  readonly canRenderClack: boolean;
+  readonly cwd: string;
+  readonly output: Writable;
+  readonly terminal: CliTerminal;
+}
+
+const streamIsInteractive = (stream: Readable | Writable): boolean =>
+  Reflect.get(stream, "isTTY") === true;
+
+const resolveCliRuntime = (options: RunCliOptions): CliRuntime => {
+  const input = options.input ?? process.stdin;
+  const output = options.output ?? process.stdout;
+
+  return {
+    canPrompt:
+      options.interactive ??
+      (streamIsInteractive(input) && streamIsInteractive(output)),
+    canRenderClack: options.interactive ?? streamIsInteractive(output),
+    cwd: options.cwd ?? process.cwd(),
+    output,
+    terminal:
+      options.terminal ??
+      createClackTerminal({
+        input,
+        output,
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      }),
+  };
+};
+
+const renderAfterScaffold = (
+  request: ScaffoldRequest,
+  render: () => void
+): void => {
+  try {
+    render();
+  } catch (error: unknown) {
+    throw normalizeCreateAstilbaError(error, {
+      code: "UNEXPECTED_ERROR",
+      destination: request.destination,
+      phase: "unknown",
+      projectCreated: !request.dryRun,
+    });
+  }
+};
+
+const getProgressMessages = (
+  request: ScaffoldRequest
+): {
+  readonly completion: string;
+  readonly progress: string;
+} => {
+  if (request.dryRun) {
+    return {
+      completion: "Project plan ready",
+      progress: "Planning project",
+    };
+  }
+
+  if (request.installDependencies) {
+    return {
+      completion: "Project created and dependencies installed",
+      progress: "Creating project and installing dependencies",
+    };
+  }
+
+  return {
+    completion: "Project created",
+    progress: "Creating project",
+  };
+};
+
 export const runCli = async (
   arguments_: readonly string[] = process.argv.slice(2),
-  options: { readonly signal?: AbortSignal } = {}
+  options: RunCliOptions = {}
 ): Promise<void> => {
+  const { canPrompt, canRenderClack, cwd, output, terminal } =
+    resolveCliRuntime(options);
   const parsed = parseCliCommand(arguments_);
 
   if (parsed.command === "help") {
-    process.stdout.write(
+    output.write(
       parsed.json
         ? `${JSON.stringify({
             command: "help",
@@ -596,7 +695,7 @@ export const runCli = async (
   }
 
   if (parsed.command === "version") {
-    process.stdout.write(
+    output.write(
       parsed.json
         ? `${JSON.stringify({
             command: "version",
@@ -609,36 +708,41 @@ export const runCli = async (
     return;
   }
 
-  const request = await resolveCliRequest(parsed.input, options.signal);
+  const request = await resolveCliRequest(parsed.input, {
+    cwd,
+    interactive: canPrompt,
+    terminal,
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+  });
   const spinner =
-    request.json || process.stdout.isTTY !== true
+    request.json || !canRenderClack
       ? undefined
-      : prompts.spinner();
-  let progressMessage = "Creating project";
-  let completionMessage = "Project created";
+      : terminal.spinner(options.signal);
+  const progressMessages = getProgressMessages(request);
 
-  if (request.dryRun) {
-    progressMessage = "Planning project";
-    completionMessage = "Project plan ready";
-  } else if (request.installDependencies) {
-    progressMessage = "Creating project and installing dependencies";
-    completionMessage = "Project created and dependencies installed";
-  }
-
-  spinner?.start(progressMessage);
+  spinner?.start(progressMessages.progress);
 
   let result: ScaffoldResult;
 
   try {
     result = await scaffoldProject(request, [], options.signal);
-    spinner?.stop(completionMessage);
   } catch (error: unknown) {
-    spinner?.stop("Project creation needs attention");
+    try {
+      spinner?.stop("Project creation needs attention");
+    } catch {
+      // Keep the operation failure authoritative if terminal rendering fails.
+    }
     throw error;
   }
 
+  renderAfterScaffold(request, () => {
+    spinner?.stop(progressMessages.completion);
+  });
+
   if (request.json) {
-    writeJsonResult(result, request.dryRun);
+    renderAfterScaffold(request, () => {
+      writeJsonResult(result, request.dryRun, output);
+    });
     return;
   }
 
@@ -646,9 +750,11 @@ export const runCli = async (
   const verb = request.dryRun ? "Planned" : "Created";
   const summary = `${verb} ${recipe?.label ?? result.recipe} at ${result.destination}`;
 
-  if (process.stdout.isTTY === true) {
-    prompts.outro(summary);
-  } else {
-    process.stdout.write(`${summary}\n`);
-  }
+  renderAfterScaffold(request, () => {
+    if (canRenderClack) {
+      terminal.outro(summary, options.signal);
+    } else {
+      output.write(`${summary}\n`);
+    }
+  });
 };

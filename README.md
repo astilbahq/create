@@ -23,12 +23,12 @@ npm create astilba@latest -- my-project \
   --no-install
 ```
 
-Use `--dry-run` to validate and inspect a plan without writing files. Use `--json` for versioned machine-readable output; that mode never prompts.
+Use `--dry-run` to validate and inspect a plan without writing files. Use `--json` for versioned machine-readable output; that mode never prompts. Invoke `create-astilba` directly through `npx` whenever stdout must contain only the JSON object, because npm's `create` wrapper writes its own lifecycle lines.
 
 Machine consumers can read the released recipe catalog without starting a questionnaire or writing project files:
 
 ```sh
-npm create astilba@latest -- --catalog --json
+npx --yes create-astilba@latest --catalog --json
 ```
 
 The catalog exposes stable recipe IDs and recipe versions together with human-readable labels and descriptions. Its schema version is independent from the generator and recipe versions. Internal profiles, dependencies, and implementation details are deliberately excluded.
@@ -74,6 +74,8 @@ pnpm install
 pnpm verify
 pnpm test:consumers
 pnpm test:package
+published_version="$(node -p 'require("./package.json").version')"
+pnpm test:published -- --version="$published_version" --recipe=typescript-library --git --install
 ```
 
 From this checkout, run the development CLI with:
@@ -83,6 +85,8 @@ pnpm run create
 ```
 
 `pnpm test:consumers` generates, installs with each recipe's frozen lockfile, verifies, and builds every recipe as an independent project. `pnpm test:package` repeats that test through the actual npm tarball.
+
+`pnpm test:published` is a post-publication acceptance check, not a pull-request gate. It fetches the exact requested version from npm and follows the public catalog, dry-run, creation, and generated-project verification paths. The [release acceptance guide](docs/release-acceptance.md) defines the automated platform matrix and the deliberately human checks.
 
 When a dependency or generated foundation changes, increment each affected recipe version and then run `pnpm recipes:update`. The command regenerates every canonical lockfile and records the new output fingerprint while preserving every published version. It refuses to rewrite an existing version's contract.
 

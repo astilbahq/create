@@ -41,7 +41,7 @@ Create a project with Astilba's TypeScript foundations.
 Usage:
   npm create astilba@latest
   npm create astilba@latest -- <directory> --recipe <recipe> [options]
-  npm create astilba@latest -- --catalog [--json]
+  npx --yes create-astilba@latest --catalog [--json]
 
 Recipes:
 ${renderRecipeHelp()}

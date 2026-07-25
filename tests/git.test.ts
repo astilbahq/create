@@ -3,6 +3,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   realpath,
   rm,
   writeFile,
@@ -78,6 +79,19 @@ describe("initializeGitRepository", () => {
     });
   });
 
+  it("refuses to replace existing Git metadata", async () => {
+    const root = await createTemporaryRoot();
+    const repository = path.join(root, "repository");
+    const sentinel = path.join(repository, ".git", "sentinel");
+    await mkdir(path.dirname(sentinel), { recursive: true });
+    await writeFile(sentinel, "preserve me\n", "utf-8");
+
+    await expect(initializeGitRepository(repository)).rejects.toThrow(
+      "The destination already contains Git metadata."
+    );
+    await expect(readFile(sentinel, "utf-8")).resolves.toBe("preserve me\n");
+  });
+
   it("honours cancellation before starting Git", async () => {
     const root = await createTemporaryRoot();
     const repository = path.join(root, "repository");
@@ -91,5 +105,24 @@ describe("initializeGitRepository", () => {
     await expect(lstat(path.join(repository, ".git"))).rejects.toMatchObject({
       code: "ENOENT",
     });
+  });
+
+  it("honours cancellation during asynchronous setup", async () => {
+    const root = await createTemporaryRoot();
+    const repository = path.join(root, "repository");
+    const controller = new AbortController();
+    const cancellation = new Error("test cancellation");
+    await mkdir(repository);
+
+    const initializing = initializeGitRepository(
+      repository,
+      process.env,
+      controller.signal
+    );
+    controller.abort(cancellation);
+
+    await expect(initializing).rejects.toBe(cancellation);
+    await expect(readdir(repository)).resolves.toEqual([]);
+    await expect(readdir(root)).resolves.toEqual(["repository"]);
   });
 });

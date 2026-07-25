@@ -5,6 +5,22 @@ import { promisify } from "node:util";
 
 const executeFile = promisify(execFile);
 
+const assertGitDirectoryAbsent = async (
+  gitDirectory: string
+): Promise<void> => {
+  try {
+    await lstat(gitDirectory);
+  } catch (error: unknown) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return;
+    }
+
+    throw error;
+  }
+
+  throw new Error("The destination already contains Git metadata.");
+};
+
 const createIsolatedGitEnvironment = (
   ambientEnvironment: NodeJS.ProcessEnv,
   templateDirectory: string
@@ -46,11 +62,16 @@ export const initializeGitRepository = async (
   ambientEnvironment: NodeJS.ProcessEnv = process.env,
   signal?: AbortSignal
 ): Promise<void> => {
+  signal?.throwIfAborted();
+
+  const gitDirectory = path.join(root, ".git");
+  await assertGitDirectoryAbsent(gitDirectory);
   const templateDirectory = await mkdtemp(
     path.join(path.dirname(root), ".astilba-create-git-template-")
   );
 
   try {
+    signal?.throwIfAborted();
     await executeFile(
       "git",
       [
@@ -69,6 +90,9 @@ export const initializeGitRepository = async (
       }
     );
     await assertInitializedRepository(root);
+  } catch (error: unknown) {
+    await rm(gitDirectory, { force: true, recursive: true });
+    throw error;
   } finally {
     await rm(templateDirectory, { force: true, recursive: true });
   }

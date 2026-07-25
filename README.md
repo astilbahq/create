@@ -25,6 +25,14 @@ npm create astilba@latest -- my-project \
 
 Use `--dry-run` to validate and inspect a plan without writing files. Use `--json` for versioned machine-readable output; that mode never prompts.
 
+Machine consumers can read the released recipe catalog without starting a questionnaire or writing project files:
+
+```sh
+npm create astilba@latest -- --catalog --json
+```
+
+The catalog exposes stable recipe IDs and recipe versions together with human-readable labels and descriptions. Its schema version is independent from the generator and recipe versions. Internal profiles, dependencies, and implementation details are deliberately excluded.
+
 ## Maintained recipes
 
 | Recipe | Starting point |

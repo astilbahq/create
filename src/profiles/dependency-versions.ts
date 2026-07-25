@@ -13,7 +13,7 @@ export const dependencyVersions = {
   publint: "0.3.21",
   react: "19.2.7",
   "react-dom": "19.2.7",
-  typescript: "6.0.3",
+  typescript: "7.0.2",
   ultracite: "7.9.4",
   vite: "8.1.3",
   vitest: "4.1.10",

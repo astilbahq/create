@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
-import {
-  CLI_OUTPUT_SCHEMA_VERSION,
-  isJsonOutputRequested,
-  runCli,
-} from "./cli.js";
-import { CreateAstilbaError, normalizeCreateAstilbaError } from "./errors.js";
+import { configureColorEnvironment } from "./color.js";
+
+configureColorEnvironment(process.env);
+
+const [
+  { CLI_OUTPUT_SCHEMA_VERSION, isJsonOutputRequested, runCli },
+  { CreateAstilbaError, normalizeCreateAstilbaError },
+] = await Promise.all([import("./cli.js"), import("./errors.js")]);
 
 const abortController = new AbortController();
 const interrupt = (): void => {

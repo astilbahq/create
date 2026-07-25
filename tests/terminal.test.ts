@@ -100,6 +100,23 @@ describe("Clack terminal adapter", () => {
     expect(rendered).toContain("/work/project");
   });
 
+  it("updates a real spinner message through the terminal adapter", () => {
+    const input = new TtyPassThrough();
+    const output = new TtyPassThrough();
+    let rendered = "";
+    output.on("data", (chunk: Buffer) => {
+      rendered += chunk.toString("utf-8");
+    });
+    const terminal = createClackTerminal({ input, output });
+    const spinner = terminal.spinner();
+
+    spinner.start("Planning project");
+    spinner.message("Generating project");
+    spinner.stop("Project created");
+
+    expect(rendered).toContain("Project created");
+  });
+
   it("renders and cleans up a real cancelled prompt", async () => {
     const input = new TtyPassThrough();
     const output = new TtyPassThrough();

@@ -12,10 +12,13 @@ export type CreateAstilbaErrorPhase =
   | "installation"
   | "unknown";
 
+export type DestinationState = "complete" | "incomplete" | "unchanged";
+
 export interface CreateAstilbaErrorOptions {
   readonly cause?: unknown;
   readonly code: CreateAstilbaErrorCode;
   readonly destination?: string;
+  readonly destinationState?: DestinationState;
   readonly diagnostics?: string;
   readonly exitCode?: number;
   readonly messageReported?: boolean;
@@ -26,6 +29,7 @@ export interface CreateAstilbaErrorOptions {
 export class CreateAstilbaError extends Error {
   public readonly code: CreateAstilbaErrorCode;
   public readonly destination: string | undefined;
+  public readonly destinationState: DestinationState;
   public readonly diagnostics: string | undefined;
   public readonly exitCode: number;
   public readonly messageReported: boolean;
@@ -37,11 +41,14 @@ export class CreateAstilbaError extends Error {
     this.name = "CreateAstilbaError";
     this.code = options.code;
     this.destination = options.destination;
+    this.destinationState =
+      options.destinationState ??
+      (options.projectCreated === true ? "complete" : "unchanged");
     this.diagnostics = options.diagnostics;
     this.exitCode = options.exitCode ?? 1;
     this.messageReported = options.messageReported ?? false;
     this.phase = options.phase;
-    this.projectCreated = options.projectCreated ?? false;
+    this.projectCreated = this.destinationState === "complete";
   }
 }
 

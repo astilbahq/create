@@ -6,6 +6,7 @@ import {
   readlink,
   readdir,
   realpath,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -16,6 +17,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { applyGenerationPlan } from "../src/generator/apply.js";
+import type {
+  ApplyPlanPublicationOperations,
+  ApplyGenerationError,
+} from "../src/generator/apply.js";
+import { INCOMPLETE_MARKER_PATH } from "../src/generator/paths.js";
 import type { GenerationPlan } from "../src/generator/types.js";
 
 const temporaryRoots: string[] = [];
@@ -62,6 +68,66 @@ const plan: GenerationPlan = {
   ],
 };
 
+interface PublicationFaults {
+  readonly cleanup?: boolean;
+  readonly markerRemoval?: boolean;
+  readonly move?: string;
+  readonly rollback?: string;
+}
+
+const createPublicationOperations = (
+  destination: string,
+  faults: PublicationFaults
+): Partial<ApplyPlanPublicationOperations> => {
+  const stagingToken = `${path.sep}.${path.basename(destination)}.foundation-`;
+  const resolvedDestination = path.resolve(destination);
+
+  return {
+    remove: async (candidate, options) => {
+      const resolvedCandidate = path.resolve(String(candidate));
+
+      if (
+        faults.markerRemoval === true &&
+        resolvedCandidate ===
+          path.join(resolvedDestination, INCOMPLETE_MARKER_PATH)
+      ) {
+        throw new Error("injected marker removal failure");
+      }
+
+      if (
+        faults.cleanup === true &&
+        resolvedCandidate.includes(stagingToken) &&
+        options?.recursive === true
+      ) {
+        throw new Error("injected staging cleanup failure");
+      }
+
+      await rm(candidate, options);
+    },
+    rename: async (source, target) => {
+      const resolvedSource = path.resolve(String(source));
+      const resolvedTarget = path.resolve(String(target));
+      const name = path.basename(resolvedSource);
+      const isMove =
+        resolvedSource.includes(stagingToken) &&
+        path.dirname(resolvedTarget) === resolvedDestination;
+      const isRollback =
+        path.dirname(resolvedSource) === resolvedDestination &&
+        resolvedTarget.includes(stagingToken);
+
+      if (isMove && name === faults.move) {
+        throw new Error("injected publication move failure");
+      }
+
+      if (isRollback && name === faults.rollback) {
+        throw new Error("injected publication rollback failure");
+      }
+
+      await rename(source, target);
+    },
+  };
+};
+
 describe("applyGenerationPlan", () => {
   it("publishes the complete planned tree", async () => {
     const root = await createTemporaryRoot();
@@ -80,6 +146,104 @@ describe("applyGenerationPlan", () => {
     );
     await expect(
       lstat(path.join(destination, ".astilba-create-incomplete"))
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("reports an unchanged destination after a complete publication rollback", async () => {
+    const root = await createTemporaryRoot();
+    const destination = path.join(root, "project");
+
+    await expect(
+      applyGenerationPlan(plan, destination, {
+        publicationOperations: createPublicationOperations(destination, {
+          move: "src",
+        }),
+      })
+    ).rejects.toMatchObject({
+      destinationState: "unchanged",
+    } satisfies Partial<ApplyGenerationError>);
+    await expect(lstat(destination)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("preserves a partial destination and marker when rollback fails", async () => {
+    const root = await createTemporaryRoot();
+    const destination = path.join(root, "project");
+
+    await expect(
+      applyGenerationPlan(plan, destination, {
+        publicationOperations: createPublicationOperations(destination, {
+          move: "src",
+          rollback: "README.md",
+        }),
+      })
+    ).rejects.toMatchObject({
+      destinationState: "incomplete",
+    } satisfies Partial<ApplyGenerationError>);
+    await expect(
+      readFile(path.join(destination, "README.md"), "utf-8")
+    ).resolves.toBe("# Example\n");
+    await expect(
+      lstat(path.join(destination, INCOMPLETE_MARKER_PATH))
+    ).resolves.toBeDefined();
+  });
+
+  it("keeps the incomplete state authoritative when staging cleanup also fails", async () => {
+    const root = await createTemporaryRoot();
+    const destination = path.join(root, "project");
+
+    await expect(
+      applyGenerationPlan(plan, destination, {
+        publicationOperations: createPublicationOperations(destination, {
+          cleanup: true,
+          move: "src",
+          rollback: "README.md",
+        }),
+      })
+    ).rejects.toMatchObject({
+      destinationState: "incomplete",
+    } satisfies Partial<ApplyGenerationError>);
+    await expect(
+      lstat(path.join(destination, INCOMPLETE_MARKER_PATH))
+    ).resolves.toBeDefined();
+  });
+
+  it("reports an incomplete destination when its marker cannot be removed", async () => {
+    const root = await createTemporaryRoot();
+    const destination = path.join(root, "project");
+
+    await expect(
+      applyGenerationPlan(plan, destination, {
+        publicationOperations: createPublicationOperations(destination, {
+          markerRemoval: true,
+        }),
+      })
+    ).rejects.toMatchObject({
+      destinationState: "incomplete",
+    } satisfies Partial<ApplyGenerationError>);
+    await expect(
+      readFile(path.join(destination, "README.md"), "utf-8")
+    ).resolves.toBe("# Example\n");
+    await expect(
+      lstat(path.join(destination, INCOMPLETE_MARKER_PATH))
+    ).resolves.toBeDefined();
+  });
+
+  it("does not turn post-commit staging cleanup failure into generation failure", async () => {
+    const root = await createTemporaryRoot();
+    const destination = path.join(root, "project");
+
+    await expect(
+      applyGenerationPlan(plan, destination, {
+        publicationOperations: createPublicationOperations(destination, {
+          cleanup: true,
+        }),
+      })
+    ).resolves.toBeUndefined();
+    await expect(
+      readFile(path.join(destination, "README.md"), "utf-8")
+    ).resolves.toBe("# Example\n");
+    await expect(
+      lstat(path.join(destination, INCOMPLETE_MARKER_PATH))
     ).rejects.toMatchObject({ code: "ENOENT" });
   });
 

@@ -42,6 +42,7 @@ interface CliConfirmPromptOptions extends CliPromptOptions {
 }
 
 interface CliSpinner {
+  readonly message: (message: string) => void;
   readonly start: (message: string) => void;
   readonly stop: (message: string) => void;
 }
@@ -176,6 +177,9 @@ export const createClackTerminal = ({
       const commonOptions = createCommonOptions(overrideSignal);
       const spinner = prompts.spinner(commonOptions);
       return {
+        message: (message) => {
+          spinner.message(message);
+        },
         start: (message) => {
           spinner.start(message);
         },

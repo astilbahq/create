@@ -206,7 +206,10 @@ const main = async (): Promise<void> => {
       temporaryRoot
     );
 
-    if (!help.includes("Create a project with Astilba")) {
+    if (
+      !help.includes("Create a project with Astilba") ||
+      !help.includes("npx --yes create-astilba@latest --catalog [--json]")
+    ) {
       throw new Error("Packed CLI help output is invalid.");
     }
 

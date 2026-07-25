@@ -50,6 +50,7 @@
     "test": "vitest run",
     "test:consumers": "tsx scripts/verify-consumers.ts",
     "test:package": "pnpm build && tsx scripts/verify-packed-package.ts",
+    "test:published": "tsx scripts/verify-published-package.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "verify": "pnpm check && pnpm typecheck && pnpm test && pnpm knip && pnpm build"

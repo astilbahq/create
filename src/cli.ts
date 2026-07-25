@@ -215,13 +215,536 @@ const inferProjectName = (destinationArgument: string): string => {
   return inferredName;
 };
 
-const collectInteractiveInput = async (
-  input: PartialCreateInput,
+type RequiredCreateInput = PartialCreateInput & {
+  readonly description: string;
+  readonly destinationArgument: string;
+  readonly githubOwner: string;
+  readonly recipe: ProjectRecipeId;
+};
+
+type InteractiveCreateInput = RequiredCreateInput & {
+  readonly githubRepo: string;
+  readonly initializeGit: boolean;
+  readonly installDependencies: boolean;
+  readonly metadataInference: MetadataInference;
+  readonly packageName: string;
+  readonly projectName: string;
+};
+
+interface MetadataInference {
+  readonly githubRepo: boolean;
+  readonly packageName: boolean;
+  readonly projectName: boolean;
+}
+
+type EditableField =
+  | "description"
+  | "destination"
+  | "github-owner"
+  | "github-repo"
+  | "initialize-git"
+  | "install-dependencies"
+  | "package-name"
+  | "project-name"
+  | "recipe";
+
+const VALID_PROJECT_OPTIONS: ProjectOptions = {
+  description: "A useful TypeScript project.",
+  githubOwner: "example",
+  githubRepo: "example",
+  packageName: "example",
+  projectName: "example",
+};
+
+const getValidationMessage = (validate: () => void): string | undefined => {
+  try {
+    validate();
+    return undefined;
+  } catch (error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+  }
+};
+
+const validateOptionValue =
+  (name: keyof ProjectOptions) =>
+  (value: string | undefined): string | undefined =>
+    getValidationMessage(() => {
+      validateProjectOptions({
+        ...VALID_PROJECT_OPTIONS,
+        [name]: value ?? "",
+      });
+    });
+
+const validateDestination = (value: string | undefined): string | undefined =>
+  getValidationMessage(() => {
+    assertSafeDestinationArgument(value ?? "");
+    inferProjectName(value ?? "");
+  });
+
+const assertValidPartialInteractiveInput = (
+  input: PartialCreateInput
+): void => {
+  const validations: readonly (readonly [
+    string | undefined,
+    (value: string | undefined) => string | undefined,
+  ])[] = [
+    [input.destinationArgument, validateDestination],
+    [input.description, validateOptionValue("description")],
+    [input.githubOwner, validateOptionValue("githubOwner")],
+    [input.githubRepo, validateOptionValue("githubRepo")],
+    [input.packageName, validateOptionValue("packageName")],
+    [input.projectName, validateOptionValue("projectName")],
+  ];
+
+  for (const [value, validate] of validations) {
+    if (value === undefined) {
+      continue;
+    }
+
+    const validationMessage = validate(value);
+
+    if (validationMessage !== undefined) {
+      throw new Error(validationMessage);
+    }
+  }
+};
+
+const hasRequiredInput = (
+  input: PartialCreateInput
+): input is RequiredCreateInput =>
+  input.description !== undefined &&
+  input.destinationArgument !== undefined &&
+  input.githubOwner !== undefined &&
+  input.recipe !== undefined;
+
+const createScaffoldRequest = (
+  input: RequiredCreateInput,
+  cwd: string
+): ScaffoldRequest => {
+  assertSafeDestinationArgument(input.destinationArgument);
+  const destination = path.resolve(cwd, input.destinationArgument);
+  const inferredName = inferProjectName(input.destinationArgument);
+  const options = validateProjectOptions({
+    description: input.description,
+    githubOwner: input.githubOwner,
+    githubRepo: input.githubRepo ?? inferredName,
+    packageName: input.packageName ?? inferredName,
+    projectName: input.projectName ?? inferredName,
+  });
+
+  return {
+    destination,
+    dryRun: input.dryRun,
+    initializeGit: input.initializeGit ?? true,
+    installDependencies: input.installDependencies ?? false,
+    json: input.json,
+    options,
+    recipe: input.recipe,
+  };
+};
+
+const recipeOptions = projectRecipeIds.map((recipeId) => {
+  const recipe = getProjectRecipe(recipeId);
+  return {
+    hint: recipe.description,
+    label: recipe.label,
+    value: recipe.id,
+  };
+});
+
+const selectRecipe = async (
   terminal: CliTerminal,
   signal?: AbortSignal
-): Promise<PartialCreateInput> => {
+): Promise<ProjectRecipeId> => {
+  const selection = await terminal.select(
+    "recipe",
+    {
+      message: "What are you building?",
+      options: recipeOptions,
+    },
+    signal
+  );
+
+  if (!isProjectRecipeId(selection)) {
+    throw new TypeError("The prompt returned an unknown project recipe.");
+  }
+
+  return selection;
+};
+
+const formatReview = (
+  request: ScaffoldRequest,
+  destinationArgument: string
+): string => {
+  const recipe = getProjectRecipe(request.recipe);
+
+  return [
+    `Starting point: ${recipe.label}`,
+    `Destination: ${destinationArgument}`,
+    `Project name: ${request.options.projectName}`,
+    `Package name: ${request.options.packageName}`,
+    `Description: ${request.options.description}`,
+    `GitHub repository: ${request.options.githubOwner}/${request.options.githubRepo}`,
+    `Initialize Git: ${request.initializeGit ? "Yes" : "No"}`,
+    `Install packages: ${request.installDependencies ? "Yes" : "No"}`,
+    `Mode: ${request.dryRun ? "Dry run" : "Create project"}`,
+  ].join("\n");
+};
+
+const cancelInteractiveCreation = (
+  terminal: CliTerminal,
+  signal?: AbortSignal
+): never => {
+  let messageReported = false;
+
+  try {
+    terminal.cancel("Project creation cancelled.", signal);
+    messageReported = true;
+  } catch {
+    // Cancellation remains authoritative if its best-effort renderer fails.
+  }
+
+  throw new CliPromptCancelledError(messageReported);
+};
+
+const selectEditableField = async (
+  terminal: CliTerminal,
+  signal?: AbortSignal
+): Promise<EditableField> => {
+  const selection = await terminal.select(
+    "edit-field",
+    {
+      message: "What would you like to change?",
+      options: [
+        { label: "Starting point", value: "recipe" },
+        { label: "Destination", value: "destination" },
+        { label: "Project name", value: "project-name" },
+        { label: "Package name", value: "package-name" },
+        { label: "Description", value: "description" },
+        { label: "GitHub account", value: "github-owner" },
+        { label: "GitHub repository", value: "github-repo" },
+        { label: "Git initialization", value: "initialize-git" },
+        { label: "Dependency installation", value: "install-dependencies" },
+      ],
+    },
+    signal
+  );
+
+  const editableFields: readonly string[] = [
+    "description",
+    "destination",
+    "github-owner",
+    "github-repo",
+    "initialize-git",
+    "install-dependencies",
+    "package-name",
+    "project-name",
+    "recipe",
+  ];
+
+  if (!editableFields.includes(selection)) {
+    throw new TypeError("The prompt returned an unknown editable field.");
+  }
+
+  return selection as EditableField;
+};
+
+const editInteractiveInput = async (
+  input: InteractiveCreateInput,
+  terminal: CliTerminal,
+  signal?: AbortSignal
+): Promise<InteractiveCreateInput> => {
+  const field = await selectEditableField(terminal, signal);
+
+  switch (field) {
+    case "description": {
+      return {
+        ...input,
+        description: await terminal.text(
+          "description",
+          {
+            initialValue: input.description,
+            message: "Project description",
+            validate: validateOptionValue("description"),
+          },
+          signal
+        ),
+      };
+    }
+    case "destination": {
+      const destinationArgument = await terminal.text(
+        "destination",
+        {
+          initialValue: input.destinationArgument,
+          message: "Where should we create your project?",
+          validate: validateDestination,
+        },
+        signal
+      );
+      const inferredName = inferProjectName(destinationArgument);
+
+      return {
+        ...input,
+        destinationArgument,
+        githubRepo: input.metadataInference.githubRepo
+          ? inferredName
+          : input.githubRepo,
+        packageName: input.metadataInference.packageName
+          ? inferredName
+          : input.packageName,
+        projectName: input.metadataInference.projectName
+          ? inferredName
+          : input.projectName,
+      };
+    }
+    case "github-owner": {
+      return {
+        ...input,
+        githubOwner: await terminal.text(
+          "github-owner",
+          {
+            initialValue: input.githubOwner,
+            message: "GitHub account (omit @)",
+            validate: validateOptionValue("githubOwner"),
+          },
+          signal
+        ),
+      };
+    }
+    case "github-repo": {
+      return {
+        ...input,
+        githubRepo: await terminal.text(
+          "github-repo",
+          {
+            initialValue: input.githubRepo,
+            message: "GitHub repository name",
+            validate: validateOptionValue("githubRepo"),
+          },
+          signal
+        ),
+        metadataInference: {
+          ...input.metadataInference,
+          githubRepo: false,
+        },
+      };
+    }
+    case "initialize-git": {
+      return {
+        ...input,
+        initializeGit: await terminal.confirm(
+          "initialize-git",
+          {
+            initialValue: input.initializeGit,
+            message: "Initialize a Git repository?",
+          },
+          signal
+        ),
+      };
+    }
+    case "install-dependencies": {
+      return {
+        ...input,
+        installDependencies: await terminal.confirm(
+          "install-dependencies",
+          {
+            initialValue: input.installDependencies,
+            message: "Install dependencies?",
+          },
+          signal
+        ),
+      };
+    }
+    case "package-name": {
+      return {
+        ...input,
+        metadataInference: {
+          ...input.metadataInference,
+          packageName: false,
+        },
+        packageName: await terminal.text(
+          "package-name",
+          {
+            initialValue: input.packageName,
+            message: "npm package name",
+            validate: validateOptionValue("packageName"),
+          },
+          signal
+        ),
+      };
+    }
+    case "project-name": {
+      return {
+        ...input,
+        metadataInference: {
+          ...input.metadataInference,
+          projectName: false,
+        },
+        projectName: await terminal.text(
+          "project-name",
+          {
+            initialValue: input.projectName,
+            message: "Project name",
+            validate: validateOptionValue("projectName"),
+          },
+          signal
+        ),
+      };
+    }
+    case "recipe": {
+      return {
+        ...input,
+        recipe: await selectRecipe(terminal, signal),
+      };
+    }
+    default: {
+      const unreachableField: never = field;
+      throw new TypeError(`Unknown editable field: ${unreachableField}`);
+    }
+  }
+};
+
+const collectInteractiveMetadata = async (
+  input: PartialCreateInput,
+  inferredName: string,
+  terminal: CliTerminal,
+  signal?: AbortSignal
+): Promise<
+  Pick<
+    InteractiveCreateInput,
+    "githubRepo" | "metadataInference" | "packageName" | "projectName"
+  >
+> => {
+  const canCustomizeMetadata =
+    input.githubRepo === undefined ||
+    input.packageName === undefined ||
+    input.projectName === undefined;
+  const customizeMetadata =
+    canCustomizeMetadata &&
+    (await terminal.confirm(
+      "customize-metadata",
+      {
+        initialValue: false,
+        message: "Customize inferred names?",
+      },
+      signal
+    ));
+  const projectName =
+    input.projectName ??
+    (customizeMetadata
+      ? await terminal.text(
+          "project-name",
+          {
+            initialValue: inferredName,
+            message: "Project name",
+            validate: validateOptionValue("projectName"),
+          },
+          signal
+        )
+      : inferredName);
+  const packageName =
+    input.packageName ??
+    (customizeMetadata
+      ? await terminal.text(
+          "package-name",
+          {
+            initialValue: inferredName,
+            message: "npm package name",
+            validate: validateOptionValue("packageName"),
+          },
+          signal
+        )
+      : inferredName);
+  const githubRepo =
+    input.githubRepo ??
+    (customizeMetadata
+      ? await terminal.text(
+          "github-repo",
+          {
+            initialValue: inferredName,
+            message: "GitHub repository name",
+            validate: validateOptionValue("githubRepo"),
+          },
+          signal
+        )
+      : inferredName);
+
+  return {
+    githubRepo,
+    metadataInference: {
+      githubRepo: input.githubRepo === undefined && !customizeMetadata,
+      packageName: input.packageName === undefined && !customizeMetadata,
+      projectName: input.projectName === undefined && !customizeMetadata,
+    },
+    packageName,
+    projectName,
+  };
+};
+
+const reviewInteractiveInput = async (
+  input: InteractiveCreateInput,
+  cwd: string,
+  skipConfirmation: boolean,
+  terminal: CliTerminal,
+  signal?: AbortSignal
+): Promise<InteractiveCreateInput> => {
+  let resolvedInput = input;
+
+  while (true) {
+    const request = createScaffoldRequest(resolvedInput, cwd);
+    terminal.note(
+      formatReview(request, resolvedInput.destinationArgument),
+      "Review your project",
+      signal
+    );
+
+    if (skipConfirmation) {
+      return resolvedInput;
+    }
+
+    // oxlint-disable-next-line eslint/no-await-in-loop -- Each review action depends on the user's preceding edits.
+    const action = await terminal.select(
+      "review-action",
+      {
+        message: "Ready to continue?",
+        options: [
+          {
+            label: request.dryRun ? "Show plan" : "Create project",
+            value: "create",
+          },
+          { label: "Change details", value: "change" },
+          { label: "Cancel", value: "cancel" },
+        ],
+      },
+      signal
+    );
+
+    if (action === "create") {
+      return resolvedInput;
+    }
+
+    if (action === "cancel") {
+      return cancelInteractiveCreation(terminal, signal);
+    }
+
+    if (action !== "change") {
+      throw new TypeError("The prompt returned an unknown review action.");
+    }
+
+    // oxlint-disable-next-line eslint/no-await-in-loop -- A detail can only be edited after the user selects it.
+    resolvedInput = await editInteractiveInput(resolvedInput, terminal, signal);
+  }
+};
+
+const collectInteractiveInput = async (
+  input: PartialCreateInput,
+  cwd: string,
+  terminal: CliTerminal,
+  signal?: AbortSignal
+): Promise<InteractiveCreateInput> => {
   terminal.intro("Astilba Create", signal);
 
+  const recipe = input.recipe ?? (await selectRecipe(terminal, signal));
   const destinationArgument =
     input.destinationArgument ??
     (await terminal.text(
@@ -230,40 +753,12 @@ const collectInteractiveInput = async (
         defaultValue: "my-project",
         message: "Where should we create your project?",
         placeholder: "my-project",
-        validate: (value) => {
-          try {
-            assertSafeDestinationArgument(value ?? "");
-            inferProjectName(value ?? "");
-          } catch (error: unknown) {
-            return error instanceof Error ? error.message : String(error);
-          }
-        },
+        validate: validateDestination,
       },
       signal
     ));
   assertSafeDestinationArgument(destinationArgument);
   const inferredName = inferProjectName(destinationArgument);
-  const recipeSelection =
-    input.recipe ??
-    (await terminal.select(
-      "recipe",
-      {
-        message: "Choose a starting point",
-        options: projectRecipeIds.map((recipeId) => {
-          const candidate = getProjectRecipe(recipeId);
-          return {
-            hint: candidate.description,
-            label: candidate.label,
-            value: candidate.id,
-          };
-        }),
-      },
-      signal
-    ));
-  if (!isProjectRecipeId(recipeSelection)) {
-    throw new TypeError("The prompt returned an unknown project recipe.");
-  }
-  const recipe = recipeSelection;
   const description =
     input.description ??
     (await terminal.text(
@@ -271,21 +766,7 @@ const collectInteractiveInput = async (
       {
         message: "Project description",
         placeholder: "A useful TypeScript project.",
-        validate: (value) =>
-          (value ?? "").trim().length === 0
-            ? "Enter a project description."
-            : undefined,
-      },
-      signal
-    ));
-  const packageName =
-    input.packageName ??
-    (await terminal.text(
-      "package-name",
-      {
-        defaultValue: inferredName,
-        message: "npm package name",
-        placeholder: inferredName,
+        validate: validateOptionValue("description"),
       },
       signal
     ));
@@ -294,15 +775,18 @@ const collectInteractiveInput = async (
     (await terminal.text(
       "github-owner",
       {
-        message: "GitHub owner",
+        message: "GitHub account (omit @)",
         placeholder: "your-account",
-        validate: (value) =>
-          (value ?? "").trim().length === 0
-            ? "Enter a GitHub account."
-            : undefined,
+        validate: validateOptionValue("githubOwner"),
       },
       signal
     ));
+  const metadata = await collectInteractiveMetadata(
+    input,
+    inferredName,
+    terminal,
+    signal
+  );
   const initializeGit =
     input.initializeGit ??
     (await terminal.confirm(
@@ -324,46 +808,25 @@ const collectInteractiveInput = async (
       signal
     ));
 
-  if (!input.yes) {
-    const confirmed = await terminal.confirm(
-      "confirm-creation",
-      {
-        initialValue: true,
-        message: `Create ${inferredName} from ${getProjectRecipe(recipe).label}?`,
-      },
-      signal
-    );
-
-    if (!confirmed) {
-      terminal.cancel("Project creation cancelled.", signal);
-      throw new CliPromptCancelledError();
-    }
-  }
-
-  return {
+  const resolvedInput: InteractiveCreateInput = {
     ...input,
     description,
     destinationArgument,
     githubOwner,
+    ...metadata,
     initializeGit,
     installDependencies,
-    packageName,
     recipe,
   };
-};
 
-const hasRequiredInput = (
-  input: PartialCreateInput
-): input is PartialCreateInput & {
-  readonly description: string;
-  readonly destinationArgument: string;
-  readonly githubOwner: string;
-  readonly recipe: ProjectRecipeId;
-} =>
-  input.description !== undefined &&
-  input.destinationArgument !== undefined &&
-  input.githubOwner !== undefined &&
-  input.recipe !== undefined;
+  return reviewInteractiveInput(
+    resolvedInput,
+    cwd,
+    input.yes,
+    terminal,
+    signal
+  );
+};
 
 export const resolveScaffoldRequest = async (
   input: PartialCreateInput,
@@ -386,19 +849,22 @@ export const resolveScaffoldRequest = async (
   let resolvedInput: PartialCreateInput | undefined = input;
 
   if (!hasRequiredInput(input)) {
-    resolvedInput =
-      input.json || !interactive
-        ? undefined
-        : await collectInteractiveInput(
-            input,
-            terminal ??
-              createClackTerminal({
-                input: process.stdin,
-                output: process.stdout,
-                ...(signal === undefined ? {} : { signal }),
-              }),
-            signal
-          );
+    if (input.json || !interactive) {
+      resolvedInput = undefined;
+    } else {
+      assertValidPartialInteractiveInput(input);
+      resolvedInput = await collectInteractiveInput(
+        input,
+        cwd,
+        terminal ??
+          createClackTerminal({
+            input: process.stdin,
+            output: process.stdout,
+            ...(signal === undefined ? {} : { signal }),
+          }),
+        signal
+      );
+    }
   }
 
   if (!resolvedInput || !hasRequiredInput(resolvedInput)) {
@@ -407,26 +873,7 @@ export const resolveScaffoldRequest = async (
     );
   }
 
-  assertSafeDestinationArgument(resolvedInput.destinationArgument);
-  const destination = path.resolve(cwd, resolvedInput.destinationArgument);
-  const inferredName = inferProjectName(resolvedInput.destinationArgument);
-  const options = validateProjectOptions({
-    description: resolvedInput.description,
-    githubOwner: resolvedInput.githubOwner,
-    githubRepo: resolvedInput.githubRepo ?? inferredName,
-    packageName: resolvedInput.packageName ?? inferredName,
-    projectName: resolvedInput.projectName ?? inferredName,
-  });
-
-  return {
-    destination,
-    dryRun: resolvedInput.dryRun,
-    initializeGit: resolvedInput.initializeGit ?? true,
-    installDependencies: resolvedInput.installDependencies ?? false,
-    json: resolvedInput.json,
-    options,
-    recipe: resolvedInput.recipe,
-  };
+  return createScaffoldRequest(resolvedInput, cwd);
 };
 
 export const scaffoldProject = async (
@@ -575,6 +1022,8 @@ const resolveCliRequest = async (
           cause,
           code: "CANCELLED",
           exitCode: 130,
+          messageReported:
+            error instanceof CliPromptCancelledError && error.messageReported,
           phase: "input",
           projectCreated: false,
         }

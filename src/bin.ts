@@ -7,7 +7,12 @@ configureColorEnvironment(process.env);
 const [
   { CLI_OUTPUT_SCHEMA_VERSION, isJsonOutputRequested, runCli },
   { CreateAstilbaError, normalizeCreateAstilbaError },
-] = await Promise.all([import("./cli.js"), import("./errors.js")]);
+  { writeHumanFailure },
+] = await Promise.all([
+  import("./cli.js"),
+  import("./errors.js"),
+  import("./failure-output.js"),
+]);
 
 const abortController = new AbortController();
 const interrupt = (): void => {
@@ -48,11 +53,7 @@ try {
       })}\n`
     );
   } else {
-    process.stderr.write(`Error: ${failure.message}\n`);
-
-    if (failure.diagnostics) {
-      process.stderr.write(`\n${failure.diagnostics}\n`);
-    }
+    writeHumanFailure(failure, process.stderr);
   }
   process.exitCode = failure.exitCode;
 } finally {

@@ -4,10 +4,26 @@ import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
+import { createCatalogResult } from "../src/cli.js";
+
 const executeFile = promisify(execFile);
 const root = path.resolve(import.meta.dirname, "..");
 
 describe("CLI process contract", () => {
+  it("emits the catalog as one machine-readable object", async () => {
+    const { stderr, stdout } = await executeFile(
+      process.execPath,
+      ["--import", "tsx", "src/bin.ts", "--catalog", "--json"],
+      {
+        cwd: root,
+        maxBuffer: 1024 * 1024,
+      }
+    );
+
+    expect(stderr).toBe("");
+    expect(stdout).toBe(`${JSON.stringify(createCatalogResult())}\n`);
+  });
+
   it("emits stable machine-readable error details", async () => {
     let stdout = "";
 
@@ -60,6 +76,22 @@ describe("CLI process contract", () => {
     {
       arguments_: ["--json", "--recipe"],
       message: "Option '-r, --recipe <value>' argument missing",
+    },
+    {
+      arguments_: ["--catalog", "--recipe", "typescript-library", "--json"],
+      message: "--catalog can only be combined with --json.",
+    },
+    {
+      arguments_: ["--json", "--catalog", "--description", "An example."],
+      message: "--catalog can only be combined with --json.",
+    },
+    {
+      arguments_: ["--catalog", "--help", "--json"],
+      message: "--catalog can only be combined with --json.",
+    },
+    {
+      arguments_: ["--json", "--version", "--catalog"],
+      message: "--catalog can only be combined with --json.",
     },
   ])(
     "emits exactly one JSON object when parsing $arguments_ fails",

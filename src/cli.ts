@@ -27,20 +27,27 @@ import type { ProjectRecipeId } from "./recipes.js";
 import { CliPromptCancelledError, createClackTerminal } from "./terminal.js";
 import type { CliTerminal } from "./terminal.js";
 
-const HELP = `
+const renderRecipeHelp = (): string =>
+  projectRecipeIds
+    .map((recipeId) => {
+      const recipe = getProjectRecipe(recipeId);
+      return `  ${recipe.id}\n    ${recipe.label} — ${recipe.description}`;
+    })
+    .join("\n");
+
+const renderHelp = (): string => `
 Create a project with Astilba's TypeScript foundations.
 
 Usage:
   npm create astilba@latest
   npm create astilba@latest -- <directory> --recipe <recipe> [options]
+  npm create astilba@latest -- --catalog [--json]
 
 Recipes:
-  typescript-library          ESM TypeScript library
-  react-vite-spa             Client-rendered React + Vite application
-  astro-static-site          Statically rendered Astro site
-  cloudflare-worker-service  Cloudflare Worker service
+${renderRecipeHelp()}
 
 Options:
+  --catalog               List the released project recipes
   --description <text>    Short project description
   --github-owner <owner>  GitHub account that will own the repository
   --github-repo <name>    GitHub repository name (defaults to directory name)
@@ -58,6 +65,7 @@ Options:
 `;
 
 export const CLI_OUTPUT_SCHEMA_VERSION = 1;
+export const CATALOG_OUTPUT_SCHEMA_VERSION = 1;
 
 interface PartialCreateInput {
   readonly description?: string;
@@ -75,9 +83,28 @@ interface PartialCreateInput {
 }
 
 type ParsedCommand =
+  | { readonly command: "catalog"; readonly json: boolean }
   | { readonly command: "create"; readonly input: PartialCreateInput }
   | { readonly command: "help"; readonly json: boolean }
   | { readonly command: "version"; readonly json: boolean };
+
+interface CatalogRecipe {
+  readonly description: string;
+  readonly id: ProjectRecipeId;
+  readonly label: string;
+  readonly version: number;
+}
+
+interface CatalogResult {
+  readonly command: "catalog";
+  readonly generator: {
+    readonly name: "create-astilba";
+    readonly version: string;
+  };
+  readonly ok: true;
+  readonly recipes: readonly CatalogRecipe[];
+  readonly schemaVersion: typeof CATALOG_OUTPUT_SCHEMA_VERSION;
+}
 
 export interface ScaffoldRequest {
   readonly destination: string;
@@ -151,6 +178,7 @@ const readStringOption = (
 };
 
 const CLI_OPTIONS = {
+  catalog: { type: "boolean" },
   description: { type: "string" },
   "dry-run": { type: "boolean" },
   git: { type: "boolean" },
@@ -165,6 +193,17 @@ const CLI_OPTIONS = {
   version: { short: "v", type: "boolean" },
   yes: { short: "y", type: "boolean" },
 } as const;
+
+const CATALOG_OPTIONS = new Set(["catalog", "json"]);
+
+const hasCatalogConflict = (
+  positionals: readonly string[],
+  values: Readonly<Record<string, boolean | string | undefined>>
+): boolean =>
+  positionals.length > 0 ||
+  Object.entries(values).some(
+    ([option, value]) => value !== undefined && !CATALOG_OPTIONS.has(option)
+  );
 
 export const isJsonOutputRequested = (
   arguments_: readonly string[]
@@ -191,6 +230,14 @@ export const parseCliArguments = (
     strict: true,
   });
   const json = values.json === true;
+
+  if (values.catalog === true) {
+    if (hasCatalogConflict(positionals, values)) {
+      throw new Error("--catalog can only be combined with --json.");
+    }
+
+    return { command: "catalog", json };
+  }
 
   if (values.help === true) {
     return { command: "help", json };
@@ -1040,6 +1087,32 @@ const writeJsonResult = (
   );
 };
 
+export const createCatalogResult = (): CatalogResult => ({
+  command: "catalog",
+  generator: {
+    name: "create-astilba",
+    version: CREATE_ASTILBA_VERSION,
+  },
+  ok: true,
+  recipes: projectRecipeIds.map((recipeId) => {
+    const { description, id, label, version } = getProjectRecipe(recipeId);
+    return { description, id, label, version };
+  }),
+  schemaVersion: CATALOG_OUTPUT_SCHEMA_VERSION,
+});
+
+const renderCatalog = (catalog: CatalogResult): string =>
+  [
+    `Astilba Create ${catalog.generator.version}`,
+    "",
+    "Available recipes:",
+    ...catalog.recipes.flatMap((recipe) => [
+      `  ${recipe.id}`,
+      `    ${recipe.label} — ${recipe.description}`,
+    ]),
+    "",
+  ].join("\n");
+
 const parseCliCommand = (arguments_: readonly string[]): ParsedCommand => {
   try {
     return parseCliArguments(arguments_);
@@ -1243,15 +1316,16 @@ export const runCli = async (
   const parsed = parseCliCommand(arguments_);
 
   if (parsed.command === "help") {
+    const help = renderHelp();
     output.write(
       parsed.json
         ? `${JSON.stringify({
             command: "help",
             ok: true,
             schemaVersion: CLI_OUTPUT_SCHEMA_VERSION,
-            usage: HELP.trim(),
+            usage: help.trim(),
           })}\n`
-        : HELP
+        : help
     );
     return;
   }
@@ -1266,6 +1340,14 @@ export const runCli = async (
             version: CREATE_ASTILBA_VERSION,
           })}\n`
         : `${CREATE_ASTILBA_VERSION}\n`
+    );
+    return;
+  }
+
+  if (parsed.command === "catalog") {
+    const catalog = createCatalogResult();
+    output.write(
+      parsed.json ? `${JSON.stringify(catalog)}\n` : renderCatalog(catalog)
     );
     return;
   }

@@ -15,7 +15,7 @@ export const dependencyVersions = {
   "react-dom": "19.2.7",
   typescript: "6.0.3",
   ultracite: "7.9.4",
-  vite: "8.1.3",
+  vite: "8.2.2",
   vitest: "4.1.10",
   wrangler: "4.109.0",
 } as const;

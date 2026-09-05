@@ -5,7 +5,7 @@ export const dependencyVersions = {
   "@types/node": "24.13.3",
   "@types/react": "19.2.17",
   "@types/react-dom": "19.2.3",
-  "@vitejs/plugin-react": "6.0.2",
+  "@vitejs/plugin-react": "6.1.1",
   astro: "7.1.3",
   knip: "6.26.0",
   oxfmt: "0.59.0",

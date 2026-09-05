@@ -17,5 +17,5 @@ export const dependencyVersions = {
   ultracite: "7.9.4",
   vite: "8.1.3",
   vitest: "4.1.10",
-  wrangler: "4.109.0",
+  wrangler: "4.128.0",
 } as const;

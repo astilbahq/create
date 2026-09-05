@@ -365,7 +365,7 @@ jobs:
           min-severity: medium
           online-audits: false
           token: offline
-          version: "1.26.1"
+          version: "1.30.0"
 `
   ),
   seededFile(

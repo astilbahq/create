@@ -2,7 +2,7 @@ export const dependencyVersions = {
   "@arethetypeswrong/cli": "0.18.5",
   "@astrojs/check": "0.9.9",
   "@cloudflare/vitest-pool-workers": "0.18.3",
-  "@types/node": "24.13.3",
+  "@types/node": "26.4.1",
   "@types/react": "19.2.17",
   "@types/react-dom": "19.2.3",
   "@vitejs/plugin-react": "6.0.2",
